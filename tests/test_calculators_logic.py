@@ -4,6 +4,7 @@ import math
 import pytest
 
 from finance_mcp.data.calculators import (
+    convert_rate,
     irr,
     loan_schedule,
     npv,
@@ -249,3 +250,36 @@ def test_xirr_no_sign_change_raises() -> None:
 def test_xirr_single_cashflow_raises() -> None:
     with pytest.raises(InvalidInput):
         xirr([_cf(2021, -100.0)])
+
+
+def test_nominal_to_effective_monthly() -> None:
+    r = convert_rate(0.12, periods_per_year=12, direction="nominal_to_effective")
+    assert r.converted_rate == pytest.approx(0.12682503, rel=1e-7)
+
+
+def test_nominal_to_effective_quarterly() -> None:
+    r = convert_rate(0.12, periods_per_year=4, direction="nominal_to_effective")
+    assert r.converted_rate == pytest.approx(0.12550881, rel=1e-7)
+
+
+def test_effective_to_nominal_roundtrip() -> None:
+    ear = convert_rate(0.12, periods_per_year=12, direction="nominal_to_effective").converted_rate
+    back = convert_rate(ear, periods_per_year=12, direction="effective_to_nominal").converted_rate
+    assert back == pytest.approx(0.12, rel=1e-9)
+
+
+def test_convert_rate_invalid_periods_raises() -> None:
+    with pytest.raises(InvalidInput):
+        convert_rate(0.12, periods_per_year=0, direction="nominal_to_effective")
+
+
+def test_convert_rate_invalid_nominal_raises() -> None:
+    # 1 + nominal/m <= 0
+    with pytest.raises(InvalidInput):
+        convert_rate(-20.0, periods_per_year=12, direction="nominal_to_effective")
+
+
+def test_convert_rate_invalid_effective_raises() -> None:
+    # 1 + effective <= 0
+    with pytest.raises(InvalidInput):
+        convert_rate(-2.0, periods_per_year=12, direction="effective_to_nominal")

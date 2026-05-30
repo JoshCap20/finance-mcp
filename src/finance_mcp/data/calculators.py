@@ -10,6 +10,7 @@ is negative):
 
 import math
 from collections.abc import Callable
+from typing import Literal
 
 from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import (
@@ -18,6 +19,7 @@ from finance_mcp.data.models import (
     IRRResult,
     LoanSchedule,
     NPVResult,
+    RateConversionResult,
     TVMResult,
     TVMVariable,
 )
@@ -307,3 +309,32 @@ def xirr(cashflows: list[DatedCashflow]) -> IRRResult:
         raise InvalidInput("xirr needs at least one sign change in the cashflows.")
     rate = _bisect(lambda r: xnpv(r, cashflows).npv)
     return IRRResult(irr=rate)
+
+
+def convert_rate(
+    rate: float,
+    periods_per_year: int,
+    direction: Literal["nominal_to_effective", "effective_to_nominal"],
+) -> RateConversionResult:
+    """Convert between a nominal annual rate and an effective annual rate (EAR).
+
+    With m = ``periods_per_year`` compounding periods:
+      nominal_to_effective: EAR = (1 + nominal/m)**m - 1
+      effective_to_nominal: nominal = m * ((1 + EAR)**(1/m) - 1)
+    """
+    if periods_per_year < 1:
+        raise InvalidInput("periods_per_year must be at least 1.")
+    if direction == "nominal_to_effective":
+        if 1.0 + rate / periods_per_year <= 0.0:
+            raise InvalidInput("Invalid nominal rate for the given compounding frequency.")
+        converted: float = (1.0 + rate / periods_per_year) ** periods_per_year - 1.0
+    else:
+        if 1.0 + rate <= 0.0:
+            raise InvalidInput("Effective rate must be greater than -1 (-100%).")
+        converted = periods_per_year * ((1.0 + rate) ** (1.0 / periods_per_year) - 1.0)
+    return RateConversionResult(
+        input_rate=rate,
+        periods_per_year=periods_per_year,
+        direction=direction,
+        converted_rate=converted,
+    )
