@@ -2,14 +2,13 @@
 
 from fastmcp import FastMCP
 
-# Restored in Task 1.5 once the calculators tool module exists:
-# from finance_mcp.tools import calculators
+from finance_mcp.tools import calculators
 
 
 def create_server() -> FastMCP:
     """Create and configure the finance-mcp FastMCP server."""
     mcp: FastMCP = FastMCP("finance-mcp")
-    # calculators.register(mcp)
+    calculators.register(mcp)
     return mcp
 
 
