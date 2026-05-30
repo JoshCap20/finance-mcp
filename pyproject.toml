@@ -53,6 +53,10 @@ addopts = "--cov=finance_mcp --cov-report=term-missing --cov-fail-under=90"
 [tool.coverage.run]
 source = ["finance_mcp"]
 branch = true
+omit = ["src/finance_mcp/__main__.py"]
+
+[tool.coverage.report]
+exclude_also = ["if __name__ == .__main__.:"]
 
 [tool.bandit]
 exclude_dirs = ["tests"]

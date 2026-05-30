@@ -85,3 +85,58 @@ def test_loan_extra_payment_shortens_term() -> None:
 def test_loan_invalid_term_raises() -> None:
     with pytest.raises(InvalidInput):
         loan_schedule(principal=1000.0, annual_rate=0.05, term_months=0)
+
+
+def test_fv_zero_rate_with_payments() -> None:
+    # r = 0: fv = -(pv + pmt*n). pv=-1000, pmt=-50, n=12 -> 1600.
+    result = time_value_of_money(solve_for="fv", pv=-1000.0, pmt=-50.0, rate=0.0, nper=12.0)
+    assert result.solved_value == pytest.approx(1600.0, rel=1e-9)
+
+
+def test_pv_zero_rate_with_payments() -> None:
+    result = time_value_of_money(solve_for="pv", fv=1600.0, pmt=-50.0, rate=0.0, nper=12.0)
+    assert result.solved_value == pytest.approx(-1000.0, rel=1e-9)
+
+
+def test_nper_zero_rate_with_payments() -> None:
+    # r = 0: nper = -(pv + fv)/pmt. pv=-1200, fv=0, pmt=100 -> 12.
+    result = time_value_of_money(solve_for="nper", pv=-1200.0, fv=0.0, pmt=100.0, rate=0.0)
+    assert result.solved_value == pytest.approx(12.0, rel=1e-9)
+
+
+def test_nper_general_with_payments() -> None:
+    # 12-month annuity at 1%/mo, payment that amortizes 1000 -> nper ~ 12.
+    result = time_value_of_money(solve_for="nper", pv=1000.0, fv=0.0, pmt=-88.84879, rate=0.01)
+    assert result.solved_value == pytest.approx(12.0, rel=1e-3)
+
+
+def test_rate_general_with_payments() -> None:
+    # Solve the periodic rate of a 12-month annuity amortizing 1000 -> ~1%/mo.
+    result = time_value_of_money(solve_for="rate", pv=1000.0, fv=0.0, pmt=-88.84879, nper=12.0)
+    assert result.solved_value == pytest.approx(0.01, rel=1e-4)
+
+
+def test_nper_zero_rate_and_zero_pmt_raises() -> None:
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="nper", pv=-1000.0, fv=2000.0, pmt=0.0, rate=0.0)
+
+
+def test_rate_zero_pv_and_pmt_raises() -> None:
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="rate", pv=0.0, fv=100.0, pmt=0.0, nper=10.0)
+
+
+def test_rate_no_real_solution_raises() -> None:
+    # pv and fv same sign with no payments -> no real positive growth factor.
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="rate", pv=-1000.0, fv=-500.0, pmt=0.0, nper=10.0)
+
+
+def test_loan_invalid_principal_raises() -> None:
+    with pytest.raises(InvalidInput):
+        loan_schedule(principal=0.0, annual_rate=0.05, term_months=12)
+
+
+def test_loan_negative_rate_raises() -> None:
+    with pytest.raises(InvalidInput):
+        loan_schedule(principal=1000.0, annual_rate=-0.01, term_months=12)
