@@ -9,9 +9,37 @@ is negative):
 """
 
 import math
+from collections.abc import Callable
 
 from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import AmortizationRow, LoanSchedule, TVMResult, TVMVariable
+
+
+def _bisect(f: Callable[[float], float], low: float = -0.999999, high: float = 10.0) -> float:
+    """Find a root of ``f`` in (low, high), expanding ``high`` to bracket a sign change.
+
+    Uses interval-width convergence (scale-independent), not a raw ``|f|`` tolerance.
+    Raises InvalidInput if no sign change can be bracketed within the search range.
+    """
+    f_low = f(low)
+    f_high = f(high)
+    attempts = 0
+    while f_low * f_high > 0.0 and attempts < 100:
+        high *= 2.0
+        f_high = f(high)
+        attempts += 1
+    if f_low * f_high > 0.0:
+        raise InvalidInput("Could not bracket a root in the searched range.")
+    for _ in range(500):
+        mid = (low + high) / 2.0
+        if (high - low) / 2.0 < 1e-12:
+            return mid
+        f_mid = f(mid)
+        if f_low * f_mid <= 0.0:
+            high = mid
+        else:
+            low, f_low = mid, f_mid
+    return (low + high) / 2.0
 
 
 def _require(name: str, value: float | None) -> float:
@@ -71,30 +99,8 @@ def _rate(pv: float, fv: float, pmt: float, nper: float) -> float:
         growth_factor: float = ratio ** (1.0 / nper)
         return growth_factor - 1.0
 
-    # General case: bisection on f(r) = fv(pv, pmt, r, nper) - fv_target = 0.
-    def f(r: float) -> float:
-        return _fv(pv, pmt, r, nper) - fv
-
-    low, high = -0.9999, 1.0
-    f_low, f_high = f(low), f(high)
-    # Expand the upper bracket until a sign change is found (capped).
-    attempts = 0
-    while f_low * f_high > 0.0 and attempts < 60:
-        high *= 1.5
-        f_high = f(high)
-        attempts += 1
-    if f_low * f_high > 0.0:
-        raise InvalidInput("Could not bracket a rate solution for the given inputs.")
-    for _ in range(200):
-        mid = (low + high) / 2.0
-        f_mid = f(mid)
-        if abs(f_mid) < 1e-9:
-            return mid
-        if f_low * f_mid < 0.0:
-            high = mid
-        else:
-            low, f_low = mid, f_mid
-    return (low + high) / 2.0
+    # General case: solve f(r) = fv(pv, pmt, r, nper) - fv_target = 0 numerically.
+    return _bisect(lambda r: _fv(pv, pmt, r, nper) - fv)
 
 
 def time_value_of_money(
@@ -174,11 +180,14 @@ def loan_schedule(
     annual_rate: float,
     term_months: int,
     extra_payment: float = 0.0,
+    include_schedule: bool = False,
 ) -> LoanSchedule:
-    """Build an amortization schedule for a fixed-rate loan or mortgage.
+    """Build an amortization summary for a fixed-rate loan or mortgage.
 
     ``annual_rate`` is a decimal (e.g. 0.06 for 6%). ``extra_payment`` is an
     additional amount applied to principal each month; it shortens the term.
+    The summary (payment, totals, payoff count) is always computed; the full
+    per-period rows are returned only when ``include_schedule`` is True.
     """
     if principal <= 0.0:
         raise InvalidInput("principal must be positive.")
@@ -186,6 +195,8 @@ def loan_schedule(
         raise InvalidInput("term_months must be a positive integer.")
     if annual_rate < 0.0:
         raise InvalidInput("annual_rate cannot be negative.")
+    if extra_payment < 0.0:
+        raise InvalidInput("extra_payment cannot be negative.")
 
     monthly_rate = annual_rate / 12.0
     if monthly_rate == 0.0:
@@ -211,15 +222,16 @@ def loan_schedule(
         balance -= principal_paid
         total_paid += scheduled
         total_interest += interest
-        rows.append(
-            AmortizationRow(
-                period=period,
-                payment=round(scheduled, 2),
-                principal=round(principal_paid, 2),
-                interest=round(interest, 2),
-                balance=round(max(balance, 0.0), 2),
+        if include_schedule:
+            rows.append(
+                AmortizationRow(
+                    period=period,
+                    payment=round(scheduled, 2),
+                    principal=round(principal_paid, 2),
+                    interest=round(interest, 2),
+                    balance=round(max(balance, 0.0), 2),
+                )
             )
-        )
 
     return LoanSchedule(
         monthly_payment=round(payment, 2),

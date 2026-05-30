@@ -58,7 +58,9 @@ def test_result_echoes_all_fields() -> None:
 
 def test_loan_payment_30yr() -> None:
     # 200k at 6% annual, 360 months -> payment ~ 1199.10.
-    result = loan_schedule(principal=200000.0, annual_rate=0.06, term_months=360)
+    result = loan_schedule(
+        principal=200000.0, annual_rate=0.06, term_months=360, include_schedule=True
+    )
     assert result.monthly_payment == pytest.approx(1199.101, rel=1e-5)
     assert result.n_payments == 360
     assert result.total_interest == pytest.approx(result.total_paid - 200000.0, rel=1e-9)
@@ -140,3 +142,24 @@ def test_loan_invalid_principal_raises() -> None:
 def test_loan_negative_rate_raises() -> None:
     with pytest.raises(InvalidInput):
         loan_schedule(principal=1000.0, annual_rate=-0.01, term_months=12)
+
+
+def test_loan_schedule_summary_only_by_default() -> None:
+    result = loan_schedule(principal=200000.0, annual_rate=0.06, term_months=360)
+    assert result.monthly_payment == pytest.approx(1199.101, rel=1e-5)
+    assert result.n_payments == 360
+    assert result.total_interest == pytest.approx(result.total_paid - 200000.0, rel=1e-9)
+    assert result.schedule == []  # full rows omitted by default
+
+
+def test_loan_schedule_includes_rows_when_requested() -> None:
+    result = loan_schedule(
+        principal=200000.0, annual_rate=0.06, term_months=360, include_schedule=True
+    )
+    assert len(result.schedule) == 360
+    assert result.schedule[-1].balance == pytest.approx(0.0, abs=1e-2)
+
+
+def test_loan_negative_extra_payment_raises() -> None:
+    with pytest.raises(InvalidInput):
+        loan_schedule(principal=1000.0, annual_rate=0.05, term_months=12, extra_payment=-10.0)
