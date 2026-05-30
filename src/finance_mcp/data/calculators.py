@@ -14,6 +14,7 @@ from collections.abc import Callable
 from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import (
     AmortizationRow,
+    DatedCashflow,
     IRRResult,
     LoanSchedule,
     NPVResult,
@@ -277,4 +278,32 @@ def irr(cashflows: list[float]) -> IRRResult:
     if not _has_sign_change(cashflows):
         raise InvalidInput("irr needs at least one sign change in the cashflows.")
     rate = _bisect(lambda r: npv(r, cashflows).npv)
+    return IRRResult(irr=rate)
+
+
+def xnpv(rate: float, cashflows: list[DatedCashflow]) -> NPVResult:
+    """Net present value of dated cashflows; base date is the earliest, 365-day basis.
+
+    XNPV = sum(amount / (1 + rate)**((date - base_date).days / 365)). The annual
+    ``rate`` discounts by actual elapsed days, so irregular spacing is handled.
+    """
+    if not cashflows:
+        raise InvalidInput("cashflows must not be empty.")
+    if rate <= -1.0:
+        raise InvalidInput("rate must be greater than -1 (-100%).")
+    base = min(cf.date for cf in cashflows)
+    total = 0.0
+    for cf in cashflows:
+        years = (cf.date - base).days / 365.0
+        total += cf.amount / (1.0 + rate) ** years
+    return NPVResult(rate=rate, npv=total)
+
+
+def xirr(cashflows: list[DatedCashflow]) -> IRRResult:
+    """Annualized internal rate of return of dated cashflows; needs >=1 sign change."""
+    if len(cashflows) < 2:
+        raise InvalidInput("xirr needs at least two cashflows.")
+    if not _has_sign_change([cf.amount for cf in cashflows]):
+        raise InvalidInput("xirr needs at least one sign change in the cashflows.")
+    rate = _bisect(lambda r: xnpv(r, cashflows).npv)
     return IRRResult(irr=rate)

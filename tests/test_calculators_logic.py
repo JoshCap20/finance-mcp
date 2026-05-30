@@ -1,9 +1,18 @@
+import datetime
 import math
 
 import pytest
 
-from finance_mcp.data.calculators import irr, loan_schedule, npv, time_value_of_money
+from finance_mcp.data.calculators import (
+    irr,
+    loan_schedule,
+    npv,
+    time_value_of_money,
+    xirr,
+    xnpv,
+)
 from finance_mcp.data.errors import InvalidInput
+from finance_mcp.data.models import DatedCashflow
 
 
 def test_future_value_compound_interest() -> None:
@@ -201,3 +210,42 @@ def test_irr_no_sign_change_raises() -> None:
 def test_irr_single_cashflow_raises() -> None:
     with pytest.raises(InvalidInput):
         irr([-100.0])
+
+
+def _cf(year: int, amount: float) -> DatedCashflow:
+    return DatedCashflow(date=datetime.date(year, 1, 1), amount=amount)
+
+
+def test_xnpv_zero_at_irr_rate() -> None:
+    flows = [_cf(2021, -1000.0), _cf(2022, 1100.0)]  # 365-day span (non-leap)
+    assert xnpv(0.10, flows).npv == pytest.approx(0.0, abs=1e-6)
+
+
+def test_xirr_simple_annual() -> None:
+    flows = [_cf(2021, -1000.0), _cf(2022, 1100.0)]
+    assert xirr(flows).irr == pytest.approx(0.10, rel=1e-6)
+
+
+def test_xirr_order_independent() -> None:
+    flows = [_cf(2022, 1100.0), _cf(2021, -1000.0)]  # reversed input
+    assert xirr(flows).irr == pytest.approx(0.10, rel=1e-6)
+
+
+def test_xnpv_empty_raises() -> None:
+    with pytest.raises(InvalidInput):
+        xnpv(0.1, [])
+
+
+def test_xnpv_invalid_rate_raises() -> None:
+    with pytest.raises(InvalidInput):
+        xnpv(-1.0, [_cf(2021, -100.0), _cf(2022, 110.0)])
+
+
+def test_xirr_no_sign_change_raises() -> None:
+    with pytest.raises(InvalidInput):
+        xirr([_cf(2021, 100.0), _cf(2022, 200.0)])
+
+
+def test_xirr_single_cashflow_raises() -> None:
+    with pytest.raises(InvalidInput):
+        xirr([_cf(2021, -100.0)])
