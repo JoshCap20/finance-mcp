@@ -12,7 +12,14 @@ import math
 from collections.abc import Callable
 
 from finance_mcp.data.errors import InvalidInput
-from finance_mcp.data.models import AmortizationRow, LoanSchedule, TVMResult, TVMVariable
+from finance_mcp.data.models import (
+    AmortizationRow,
+    IRRResult,
+    LoanSchedule,
+    NPVResult,
+    TVMResult,
+    TVMVariable,
+)
 
 
 def _bisect(f: Callable[[float], float], low: float = -0.999999, high: float = 10.0) -> float:
@@ -240,3 +247,34 @@ def loan_schedule(
         total_interest=round(total_interest, 2),
         schedule=rows,
     )
+
+
+def npv(rate: float, cashflows: list[float]) -> NPVResult:
+    """Net present value of equally-spaced cashflows, with cashflows[0] at t=0 (undiscounted).
+
+    NPV = sum(cashflows[t] / (1 + rate)**t for t in 0..n). Note this differs from
+    Excel's NPV(), which assumes the first cashflow is one period in the future.
+    """
+    if not cashflows:
+        raise InvalidInput("cashflows must not be empty.")
+    if rate <= -1.0:
+        raise InvalidInput("rate must be greater than -1 (-100%).")
+    total = 0.0
+    for period, cash in enumerate(cashflows):
+        total += cash / (1.0 + rate) ** period
+    return NPVResult(rate=rate, npv=total)
+
+
+def _has_sign_change(values: list[float]) -> bool:
+    signs = {value > 0.0 for value in values if value != 0.0}
+    return len(signs) > 1
+
+
+def irr(cashflows: list[float]) -> IRRResult:
+    """Internal rate of return of equally-spaced cashflows; needs >=1 sign change."""
+    if len(cashflows) < 2:
+        raise InvalidInput("irr needs at least two cashflows.")
+    if not _has_sign_change(cashflows):
+        raise InvalidInput("irr needs at least one sign change in the cashflows.")
+    rate = _bisect(lambda r: npv(r, cashflows).npv)
+    return IRRResult(irr=rate)

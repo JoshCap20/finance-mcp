@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from finance_mcp.data.calculators import loan_schedule, time_value_of_money
+from finance_mcp.data.calculators import irr, loan_schedule, npv, time_value_of_money
 from finance_mcp.data.errors import InvalidInput
 
 
@@ -163,3 +163,41 @@ def test_loan_schedule_includes_rows_when_requested() -> None:
 def test_loan_negative_extra_payment_raises() -> None:
     with pytest.raises(InvalidInput):
         loan_schedule(principal=1000.0, annual_rate=0.05, term_months=12, extra_payment=-10.0)
+
+
+def test_npv_basic() -> None:
+    assert npv(0.10, [-1000.0, 500.0, 500.0, 500.0]).npv == pytest.approx(243.426, rel=1e-4)
+
+
+def test_npv_zero_rate_is_sum() -> None:
+    assert npv(0.0, [-1000.0, 600.0, 600.0]).npv == pytest.approx(200.0, rel=1e-9)
+
+
+def test_npv_empty_raises() -> None:
+    with pytest.raises(InvalidInput):
+        npv(0.1, [])
+
+
+def test_npv_invalid_rate_raises() -> None:
+    with pytest.raises(InvalidInput):
+        npv(-1.0, [-100.0, 110.0])
+
+
+def test_irr_simple_exact() -> None:
+    assert irr([-100.0, 110.0]).irr == pytest.approx(0.10, rel=1e-9)
+
+
+def test_irr_roundtrips_through_npv() -> None:
+    cashflows = [-1000.0, 500.0, 500.0, 500.0]
+    r = irr(cashflows).irr
+    assert npv(r, cashflows).npv == pytest.approx(0.0, abs=1e-6)
+
+
+def test_irr_no_sign_change_raises() -> None:
+    with pytest.raises(InvalidInput):
+        irr([100.0, 200.0, 300.0])
+
+
+def test_irr_single_cashflow_raises() -> None:
+    with pytest.raises(InvalidInput):
+        irr([-100.0])
