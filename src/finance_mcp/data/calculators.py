@@ -11,7 +11,7 @@ is negative):
 import math
 
 from finance_mcp.data.errors import InvalidInput
-from finance_mcp.data.models import TVMResult, TVMVariable
+from finance_mcp.data.models import AmortizationRow, LoanSchedule, TVMResult, TVMVariable
 
 
 def _require(name: str, value: float | None) -> float:
@@ -166,4 +166,65 @@ def time_value_of_money(
         pmt=resolved["pmt"] if resolved["pmt"] is not None else 0.0,
         rate=resolved["rate"] if resolved["rate"] is not None else 0.0,
         nper=resolved["nper"] if resolved["nper"] is not None else 0.0,
+    )
+
+
+def loan_schedule(
+    principal: float,
+    annual_rate: float,
+    term_months: int,
+    extra_payment: float = 0.0,
+) -> LoanSchedule:
+    """Build an amortization schedule for a fixed-rate loan or mortgage.
+
+    ``annual_rate`` is a decimal (e.g. 0.06 for 6%). ``extra_payment`` is an
+    additional amount applied to principal each month; it shortens the term.
+    """
+    if principal <= 0.0:
+        raise InvalidInput("principal must be positive.")
+    if term_months <= 0:
+        raise InvalidInput("term_months must be a positive integer.")
+    if annual_rate < 0.0:
+        raise InvalidInput("annual_rate cannot be negative.")
+
+    monthly_rate = annual_rate / 12.0
+    if monthly_rate == 0.0:
+        payment = principal / term_months
+    else:
+        growth: float = (1.0 + monthly_rate) ** term_months
+        payment = principal * monthly_rate * growth / (growth - 1.0)
+
+    rows: list[AmortizationRow] = []
+    balance = principal
+    total_paid = 0.0
+    total_interest = 0.0
+    period = 0
+    # Guard against non-terminating loops; term_months is the natural upper bound.
+    while balance > 1e-9 and period < term_months:
+        period += 1
+        interest = balance * monthly_rate
+        scheduled = payment + extra_payment
+        principal_paid = scheduled - interest
+        if principal_paid >= balance:  # final (partial) payment
+            principal_paid = balance
+            scheduled = principal_paid + interest
+        balance -= principal_paid
+        total_paid += scheduled
+        total_interest += interest
+        rows.append(
+            AmortizationRow(
+                period=period,
+                payment=round(scheduled, 2),
+                principal=round(principal_paid, 2),
+                interest=round(interest, 2),
+                balance=round(max(balance, 0.0), 2),
+            )
+        )
+
+    return LoanSchedule(
+        monthly_payment=round(payment, 2),
+        n_payments=period,
+        total_paid=round(total_paid, 2),
+        total_interest=round(total_interest, 2),
+        schedule=rows,
     )

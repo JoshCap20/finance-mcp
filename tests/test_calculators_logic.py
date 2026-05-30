@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from finance_mcp.data.calculators import time_value_of_money
+from finance_mcp.data.calculators import loan_schedule, time_value_of_money
 from finance_mcp.data.errors import InvalidInput
 
 
@@ -54,3 +54,34 @@ def test_result_echoes_all_fields() -> None:
     assert result.rate == 0.05
     assert result.nper == 10.0
     assert math.isclose(result.fv, result.solved_value)
+
+
+def test_loan_payment_30yr() -> None:
+    # 200k at 6% annual, 360 months -> payment ~ 1199.10.
+    result = loan_schedule(principal=200000.0, annual_rate=0.06, term_months=360)
+    assert result.monthly_payment == pytest.approx(1199.101, rel=1e-5)
+    assert result.n_payments == 360
+    assert result.total_interest == pytest.approx(result.total_paid - 200000.0, rel=1e-9)
+    assert result.schedule[-1].balance == pytest.approx(0.0, abs=1e-2)
+
+
+def test_loan_zero_interest() -> None:
+    # 12000 at 0% over 12 months -> 1000/mo, no interest.
+    result = loan_schedule(principal=12000.0, annual_rate=0.0, term_months=12)
+    assert result.monthly_payment == pytest.approx(1000.0, rel=1e-9)
+    assert result.total_interest == pytest.approx(0.0, abs=1e-6)
+    assert result.n_payments == 12
+
+
+def test_loan_extra_payment_shortens_term() -> None:
+    base = loan_schedule(principal=200000.0, annual_rate=0.06, term_months=360)
+    faster = loan_schedule(
+        principal=200000.0, annual_rate=0.06, term_months=360, extra_payment=200.0
+    )
+    assert faster.n_payments < base.n_payments
+    assert faster.total_interest < base.total_interest
+
+
+def test_loan_invalid_term_raises() -> None:
+    with pytest.raises(InvalidInput):
+        loan_schedule(principal=1000.0, annual_rate=0.05, term_months=0)
