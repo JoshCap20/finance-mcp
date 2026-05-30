@@ -1,5 +1,6 @@
 """Pydantic return models. Every tool returns one of these (never a bare dict)."""
 
+import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -37,3 +38,34 @@ class LoanSchedule(BaseModel):
     total_paid: float = Field(description="Sum of all payments made.")
     total_interest: float = Field(description="Total interest paid over the loan.")
     schedule: list[AmortizationRow] = Field(description="Per-period amortization rows.")
+
+
+class NPVResult(BaseModel):
+    """Net present value at a given discount rate."""
+
+    rate: float = Field(description="Discount rate used (per period, or annual for dated).")
+    npv: float = Field(description="Net present value.")
+
+
+class IRRResult(BaseModel):
+    """Internal rate of return of a cashflow series."""
+
+    irr: float = Field(description="Internal rate of return (per period, or annual for dated).")
+
+
+class DatedCashflow(BaseModel):
+    """A single cashflow on a calendar date (for XNPV/XIRR)."""
+
+    date: datetime.date = Field(description="Cashflow date (ISO 8601, e.g. 2024-01-31).")
+    amount: float = Field(description="Cashflow amount; outflows negative, inflows positive.")
+
+
+class RateConversionResult(BaseModel):
+    """Result of a nominal<->effective annual rate conversion."""
+
+    input_rate: float = Field(description="The rate provided, as a decimal.")
+    periods_per_year: int = Field(description="Compounding periods per year used.")
+    direction: Literal["nominal_to_effective", "effective_to_nominal"] = Field(
+        description="Conversion performed."
+    )
+    converted_rate: float = Field(description="The resulting rate, as a decimal.")

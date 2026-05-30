@@ -45,3 +45,98 @@ async def test_loan_schedule_invalid_input_surfaces_as_tool_error(
             "loan_schedule",
             {"principal": 1000.0, "annual_rate": 0.05, "term_months": 0},
         )
+
+
+async def test_new_tools_registered(client: Client[FastMCPTransport]) -> None:
+    names = {t.name for t in await client.list_tools()}
+    assert {"npv", "irr", "xnpv", "xirr", "convert_rate"} <= names
+
+
+async def test_npv_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "npv", {"rate": 0.10, "cashflows": [-1000.0, 500.0, 500.0, 500.0]}
+    )
+    assert result.data.npv == pytest.approx(243.426, rel=1e-4)
+
+
+async def test_irr_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool("irr", {"cashflows": [-100.0, 110.0]})
+    assert result.data.irr == pytest.approx(0.10, rel=1e-9)
+
+
+async def test_xirr_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "xirr",
+        {
+            "cashflows": [
+                {"date": "2021-01-01", "amount": -1000.0},
+                {"date": "2022-01-01", "amount": 1100.0},
+            ]
+        },
+    )
+    assert result.data.irr == pytest.approx(0.10, rel=1e-6)
+
+
+async def test_convert_rate_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "convert_rate",
+        {"rate": 0.12, "periods_per_year": 12, "direction": "nominal_to_effective"},
+    )
+    assert result.data.converted_rate == pytest.approx(0.12682503, rel=1e-7)
+
+
+async def test_loan_schedule_tool_summary_default(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "loan_schedule", {"principal": 200000.0, "annual_rate": 0.06, "term_months": 360}
+    )
+    assert result.data.schedule == []
+    assert result.data.n_payments == 360
+
+
+async def test_loan_schedule_tool_with_rows(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "loan_schedule",
+        {
+            "principal": 200000.0,
+            "annual_rate": 0.06,
+            "term_months": 360,
+            "include_schedule": True,
+        },
+    )
+    assert len(result.data.schedule) == 360
+
+
+async def test_irr_tool_no_sign_change_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool("irr", {"cashflows": [100.0, 200.0]})
+
+
+async def test_npv_tool_empty_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool("npv", {"rate": 0.1, "cashflows": []})
+
+
+async def test_xnpv_tool_empty_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool("xnpv", {"rate": 0.1, "cashflows": []})
+
+
+async def test_xirr_tool_no_sign_change_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool(
+            "xirr",
+            {
+                "cashflows": [
+                    {"date": "2021-01-01", "amount": 100.0},
+                    {"date": "2022-01-01", "amount": 200.0},
+                ]
+            },
+        )
+
+
+async def test_convert_rate_tool_invalid_nominal_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool(
+            "convert_rate",
+            {"rate": -20.0, "periods_per_year": 12, "direction": "nominal_to_effective"},
+        )

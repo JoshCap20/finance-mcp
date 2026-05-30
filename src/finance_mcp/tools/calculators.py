@@ -8,7 +8,14 @@ from pydantic import Field
 
 from finance_mcp.data import calculators
 from finance_mcp.data.errors import InvalidInput
-from finance_mcp.data.models import LoanSchedule, TVMResult
+from finance_mcp.data.models import (
+    DatedCashflow,
+    IRRResult,
+    LoanSchedule,
+    NPVResult,
+    RateConversionResult,
+    TVMResult,
+)
 
 
 def register(mcp: FastMCP) -> None:
@@ -71,14 +78,101 @@ def register(mcp: FastMCP) -> None:
             float,
             Field(ge=0, description="Extra principal paid each month; shortens the term."),
         ] = 0.0,
+        include_schedule: Annotated[
+            bool,
+            Field(description="Return the full per-period amortization rows (can be large)."),
+        ] = False,
     ) -> LoanSchedule:
-        """Compute the monthly payment, total interest, and amortization schedule for a loan."""
+        """Compute the monthly payment, total interest, and (optionally) the full schedule.
+
+        By default returns just the summary; set include_schedule=True for every row.
+        """
         try:
             return calculators.loan_schedule(
                 principal=principal,
                 annual_rate=annual_rate,
                 term_months=term_months,
                 extra_payment=extra_payment,
+                include_schedule=include_schedule,
             )
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def npv(
+        rate: Annotated[
+            float,
+            Field(description="Discount rate per period as a decimal, e.g. 0.10 for 10%."),
+        ],
+        cashflows: Annotated[
+            list[float],
+            Field(
+                description="Cashflows by period; cashflows[0] is at t=0 (now), outflows negative."
+            ),
+        ],
+    ) -> NPVResult:
+        """Net present value of equally-spaced cashflows (cashflows[0] is at t=0, undiscounted)."""
+        try:
+            return calculators.npv(rate, cashflows)
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def irr(
+        cashflows: Annotated[
+            list[float],
+            Field(description="Cashflows by period; needs >=1 sign change. Outflows negative."),
+        ],
+    ) -> IRRResult:
+        """Internal rate of return (per period) of equally-spaced cashflows."""
+        try:
+            return calculators.irr(cashflows)
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def xnpv(
+        rate: Annotated[float, Field(description="Annual discount rate as a decimal.")],
+        cashflows: Annotated[
+            list[DatedCashflow],
+            Field(description="Dated cashflows; discounted by actual days from the earliest date."),
+        ],
+    ) -> NPVResult:
+        """Net present value of cashflows on actual calendar dates (irregular spacing allowed)."""
+        try:
+            return calculators.xnpv(rate, cashflows)
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def xirr(
+        cashflows: Annotated[
+            list[DatedCashflow],
+            Field(
+                description="Dated cashflows; needs at least one sign change. Outflows negative."
+            ),
+        ],
+    ) -> IRRResult:
+        """Annualized internal rate of return of cashflows on actual calendar dates."""
+        try:
+            return calculators.xirr(cashflows)
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def convert_rate(
+        rate: Annotated[float, Field(description="The rate to convert, as a decimal.")],
+        periods_per_year: Annotated[
+            int,
+            Field(gt=0, description="Compounding periods per year, e.g. 12 for monthly."),
+        ],
+        direction: Annotated[
+            Literal["nominal_to_effective", "effective_to_nominal"],
+            Field(description="Which way to convert."),
+        ],
+    ) -> RateConversionResult:
+        """Convert between a nominal annual rate (APR) and an effective annual rate (APY/EAR)."""
+        try:
+            return calculators.convert_rate(rate, periods_per_year, direction)
         except InvalidInput as exc:
             raise ToolError(str(exc)) from exc
