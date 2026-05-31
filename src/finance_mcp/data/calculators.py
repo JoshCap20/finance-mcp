@@ -16,6 +16,7 @@ from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import (
     AmortizationRow,
     BondAnalytics,
+    BondYTM,
     DatedCashflow,
     IRRResult,
     LoanSchedule,
@@ -400,3 +401,19 @@ def bond_price(
         modified_duration=modified,
         convexity=convexity,
     )
+
+
+def bond_ytm(
+    face: float,
+    coupon_rate: float,
+    years_to_maturity: float,
+    price: float,
+    frequency: int = 2,
+) -> BondYTM:
+    """Solve the annual yield to maturity that prices the bond at ``price``."""
+    if price <= 0.0:
+        raise InvalidInput("price must be positive.")
+    rate = _bisect(
+        lambda y: bond_price(face, coupon_rate, years_to_maturity, y, frequency).price - price
+    )
+    return BondYTM(yield_to_maturity=rate)

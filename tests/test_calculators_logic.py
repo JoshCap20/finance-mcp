@@ -5,6 +5,7 @@ import pytest
 
 from finance_mcp.data.calculators import (
     bond_price,
+    bond_ytm,
     convert_rate,
     irr,
     loan_schedule,
@@ -368,3 +369,21 @@ def test_bond_price_invalid_frequency_raises() -> None:
 def test_bond_price_invalid_face_raises() -> None:
     with pytest.raises(InvalidInput):
         bond_price(face=0.0, coupon_rate=0.05, years_to_maturity=10.0, ytm=0.06, frequency=2)
+
+
+def test_bond_ytm_roundtrip() -> None:
+    price = bond_price(
+        face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, ytm=0.06, frequency=2
+    ).price
+    r = bond_ytm(face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, price=price, frequency=2)
+    assert r.yield_to_maturity == pytest.approx(0.06, rel=1e-6)
+
+
+def test_bond_ytm_par_equals_coupon() -> None:
+    r = bond_ytm(face=1000.0, coupon_rate=0.06, years_to_maturity=10.0, price=1000.0, frequency=2)
+    assert r.yield_to_maturity == pytest.approx(0.06, rel=1e-6)
+
+
+def test_bond_ytm_invalid_price_raises() -> None:
+    with pytest.raises(InvalidInput):
+        bond_ytm(face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, price=0.0, frequency=2)
