@@ -283,3 +283,54 @@ def test_convert_rate_invalid_effective_raises() -> None:
     # 1 + effective <= 0
     with pytest.raises(InvalidInput):
         convert_rate(-2.0, periods_per_year=12, direction="effective_to_nominal")
+
+
+def test_fv_annuity_due_is_ordinary_times_one_plus_r() -> None:
+    ordinary = time_value_of_money(
+        solve_for="fv", pv=0.0, pmt=-100.0, rate=0.05, nper=10.0
+    ).solved_value
+    due = time_value_of_money(
+        solve_for="fv", pv=0.0, pmt=-100.0, rate=0.05, nper=10.0, when="begin"
+    ).solved_value
+    assert due == pytest.approx(ordinary * 1.05, rel=1e-9)
+    assert due == pytest.approx(1320.679, rel=1e-5)
+
+
+def test_pmt_annuity_due_smaller_than_ordinary() -> None:
+    # To hit the same FV, begin-of-period payments are smaller (they compound longer).
+    ordinary = time_value_of_money(
+        solve_for="pmt", pv=0.0, fv=10000.0, rate=0.05, nper=10.0
+    ).solved_value
+    due = time_value_of_money(
+        solve_for="pmt", pv=0.0, fv=10000.0, rate=0.05, nper=10.0, when="begin"
+    ).solved_value
+    assert abs(due) == pytest.approx(abs(ordinary) / 1.05, rel=1e-9)
+
+
+def test_nper_annuity_due_consistent() -> None:
+    # Round-trip: nper that produces a known due-FV should recover ~10.
+    fv = time_value_of_money(
+        solve_for="fv", pv=0.0, pmt=-100.0, rate=0.05, nper=10.0, when="begin"
+    ).solved_value
+    n = time_value_of_money(
+        solve_for="nper", pv=0.0, fv=fv, pmt=-100.0, rate=0.05, when="begin"
+    ).solved_value
+    assert n == pytest.approx(10.0, rel=1e-6)
+
+
+def test_rate_annuity_due_consistent() -> None:
+    fv = time_value_of_money(
+        solve_for="fv", pv=0.0, pmt=-100.0, rate=0.05, nper=10.0, when="begin"
+    ).solved_value
+    r = time_value_of_money(
+        solve_for="rate", pv=0.0, fv=fv, pmt=-100.0, nper=10.0, when="begin"
+    ).solved_value
+    assert r == pytest.approx(0.05, rel=1e-6)
+
+
+def test_zero_rate_when_begin_equals_end() -> None:
+    end = time_value_of_money(solve_for="fv", pv=0.0, pmt=-100.0, rate=0.0, nper=10.0).solved_value
+    begin = time_value_of_money(
+        solve_for="fv", pv=0.0, pmt=-100.0, rate=0.0, nper=10.0, when="begin"
+    ).solved_value
+    assert end == pytest.approx(begin, rel=1e-12)
