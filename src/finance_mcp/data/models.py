@@ -112,3 +112,59 @@ class BondYTM(BaseModel):
     """Yield to maturity solved from a bond's market price."""
 
     yield_to_maturity: float = Field(description="Annual yield to maturity, as a decimal.")
+
+
+class Quote(BaseModel):
+    """A current price snapshot for one ticker."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    currency: str | None = Field(default=None, description="Quote currency, e.g. USD.")
+    price: float = Field(description="Latest price.")
+    previous_close: float | None = Field(default=None, description="Previous close.")
+    change: float | None = Field(default=None, description="Price change vs previous close.")
+    change_percent: float | None = Field(
+        default=None, description="Percent change vs previous close."
+    )
+    day_high: float | None = Field(default=None, description="Intraday high.")
+    day_low: float | None = Field(default=None, description="Intraday low.")
+    year_high: float | None = Field(default=None, description="52-week high.")
+    year_low: float | None = Field(default=None, description="52-week low.")
+    market_cap: float | None = Field(default=None, description="Market capitalization.")
+    volume: float | None = Field(default=None, description="Latest/last volume.")
+
+
+class PriceBar(BaseModel):
+    """One OHLCV bar."""
+
+    date: str = Field(description="Bar date (ISO 8601).")
+    open: float = Field(description="Open price.")
+    high: float = Field(description="High price.")
+    low: float = Field(description="Low price.")
+    close: float = Field(description="Close price.")
+    volume: float = Field(description="Volume.")
+
+
+class PriceSummary(BaseModel):
+    """Compact summary over the requested history window."""
+
+    start_date: str = Field(description="First bar date.")
+    end_date: str = Field(description="Last bar date.")
+    start_close: float = Field(description="Close of the first bar.")
+    end_close: float = Field(description="Close of the last bar.")
+    total_return_percent: float = Field(description="Percent change from first to last close.")
+    period_high: float = Field(description="Highest high over the window.")
+    period_low: float = Field(description="Lowest low over the window.")
+    bars: int = Field(description="Number of bars in the full window.")
+
+
+class PriceHistory(BaseModel):
+    """OHLCV history plus a computed summary."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    period: str = Field(description="Requested period, e.g. '1mo'.")
+    interval: str = Field(description="Requested interval, e.g. '1d'.")
+    bars: list[PriceBar] = Field(description="OHLCV bars (most recent, may be truncated).")
+    summary: PriceSummary = Field(description="Summary computed over the full window.")
+    truncated: bool = Field(
+        description="True if bars were capped; summary still covers the full window."
+    )
