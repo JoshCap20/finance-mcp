@@ -27,21 +27,12 @@ from finance_mcp.data.models import (
 )
 
 
-def _bisect(f: Callable[[float], float], low: float = -0.999999, high: float = 10.0) -> float:
-    """Find a root of ``f`` in (low, high), expanding ``high`` to bracket a sign change.
+def _bisect_bracket(f: Callable[[float], float], low: float, high: float) -> float:
+    """Bisect for a root of ``f`` in a bracket [low, high] known to straddle zero.
 
     Uses interval-width convergence (scale-independent), not a raw ``|f|`` tolerance.
-    Raises InvalidInput if no sign change can be bracketed within the search range.
     """
     f_low = f(low)
-    f_high = f(high)
-    attempts = 0
-    while f_low * f_high > 0.0 and attempts < 100:
-        high *= 2.0
-        f_high = f(high)
-        attempts += 1
-    if f_low * f_high > 0.0:
-        raise InvalidInput("Could not bracket a root in the searched range.")
     for _ in range(500):
         mid = (low + high) / 2.0
         if (high - low) / 2.0 < 1e-12:
@@ -52,6 +43,64 @@ def _bisect(f: Callable[[float], float], low: float = -0.999999, high: float = 1
         else:
             low, f_low = mid, f_mid
     return (low + high) / 2.0
+
+
+def _bisect(f: Callable[[float], float], low: float = -0.999999, high: float = 10.0) -> float:
+    """Find a single root of ``f``, expanding ``high`` to bracket a sign change.
+
+    For monotonic functions (TVM rate, bond yield). Raises InvalidInput if no sign
+    change can be bracketed within the search range.
+    """
+    f_low = f(low)
+    f_high = f(high)
+    attempts = 0
+    while f_low * f_high > 0.0 and attempts < 100:
+        high *= 2.0
+        f_high = f(high)
+        attempts += 1
+    if f_low * f_high > 0.0:
+        raise InvalidInput("Could not bracket a root in the searched range.")
+    return _bisect_bracket(f, low, high)
+
+
+def _find_all_roots(
+    f: Callable[[float], float],
+    low: float = -0.999999,
+    high: float = 10.0,
+    grid_points: int = 1100,
+    dedup_tol: float = 1e-7,
+) -> list[float]:
+    """Find every real root of ``f`` on (low, high] by scanning a fixed uniform grid.
+
+    Deterministic: fixed bounds, resolution, and tolerances. Records exact grid-point
+    zeros and bisects every sign-change bracket, then returns sorted, de-duplicated
+    roots. Used for IRR/XIRR, where non-conventional cashflows can have several roots.
+    """
+    step = (high - low) / (grid_points - 1)
+    prev_x = low
+    prev_f = f(low)
+    roots: list[float] = [low] if prev_f == 0.0 else []
+    for i in range(1, grid_points):
+        x = low + i * step
+        fx = f(x)
+        if fx == 0.0:
+            roots.append(x)
+        elif prev_f * fx < 0.0:
+            roots.append(_bisect_bracket(f, prev_x, x))
+        prev_x, prev_f = x, fx
+    roots.sort()
+    deduped: list[float] = []
+    for root in roots:
+        if not deduped or abs(root - deduped[-1]) > dedup_tol:
+            deduped.append(root)
+    return deduped
+
+
+def _irr_result(roots: list[float]) -> IRRResult:
+    """Build an IRRResult, choosing a deterministic representative scalar root."""
+    non_negative = [r for r in roots if r >= 0.0]
+    primary = min(non_negative) if non_negative else max(roots)
+    return IRRResult(irr=primary, all_irrs=roots, is_unique=len(roots) == 1)
 
 
 def _require(name: str, value: float | None) -> float:
@@ -290,13 +339,20 @@ def _has_sign_change(values: list[float]) -> bool:
 
 
 def irr(cashflows: list[float]) -> IRRResult:
-    """Internal rate of return of equally-spaced cashflows; needs >=1 sign change."""
+    """Internal rate of return of equally-spaced cashflows; needs >=1 sign change.
+
+    Non-conventional cashflows can have multiple IRRs; all real roots found in
+    (-100%, 1000%] are returned (see IRRResult.all_irrs / is_unique). For a single
+    unambiguous figure use ``mirr``.
+    """
     if len(cashflows) < 2:
         raise InvalidInput("irr needs at least two cashflows.")
     if not _has_sign_change(cashflows):
         raise InvalidInput("irr needs at least one sign change in the cashflows.")
-    rate = _bisect(lambda r: npv(r, cashflows).npv)
-    return IRRResult(irr=rate)
+    roots = _find_all_roots(lambda r: npv(r, cashflows).npv)
+    if not roots:
+        raise InvalidInput("No internal rate of return exists in (-100%, 1000%]; consider mirr().")
+    return _irr_result(roots)
 
 
 def xnpv(rate: float, cashflows: list[DatedCashflow]) -> NPVResult:
@@ -330,8 +386,10 @@ def xirr(cashflows: list[DatedCashflow]) -> IRRResult:
         raise InvalidInput("xirr needs at least two cashflows.")
     if not _has_sign_change([cf.amount for cf in cashflows]):
         raise InvalidInput("xirr needs at least one sign change in the cashflows.")
-    rate = _bisect(lambda r: xnpv(r, cashflows).npv)
-    return IRRResult(irr=rate)
+    roots = _find_all_roots(lambda r: xnpv(r, cashflows).npv)
+    if not roots:
+        raise InvalidInput("No internal rate of return exists in (-100%, 1000%]; consider mirr().")
+    return _irr_result(roots)
 
 
 def convert_rate(

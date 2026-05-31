@@ -48,9 +48,25 @@ class NPVResult(BaseModel):
 
 
 class IRRResult(BaseModel):
-    """Internal rate of return of a cashflow series."""
+    """Internal rate of return of a cashflow series.
 
-    irr: float = Field(description="Internal rate of return (per period, or annual for dated).")
+    Non-conventional cashflows (more than one sign change) can have several IRRs;
+    in that case ``is_unique`` is False and ``irr`` is only a representative value.
+    """
+
+    irr: float = Field(
+        description="Representative IRR (per period, or annual for dated). When not unique "
+        "this is the smallest non-negative root (or the root nearest zero if all are "
+        "negative); inspect all_irrs and is_unique, or use mirr() for a single value."
+    )
+    all_irrs: list[float] = Field(
+        default_factory=list,
+        description="Every real IRR found in (-100%, 1000%], ascending.",
+    )
+    is_unique: bool = Field(
+        default=True,
+        description="True when exactly one IRR exists; when False, irr is one of several.",
+    )
 
 
 class DatedCashflow(BaseModel):

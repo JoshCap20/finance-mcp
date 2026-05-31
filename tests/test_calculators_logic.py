@@ -447,3 +447,39 @@ def test_bond_price_half_year_semiannual_ok() -> None:
 def test_bond_ytm_non_integer_periods_raises() -> None:
     with pytest.raises(InvalidInput):
         bond_ytm(face=1000.0, coupon_rate=0.05, years_to_maturity=2.5, price=950.0, frequency=1)
+
+
+def test_irr_multi_root_reports_both() -> None:
+    # Non-conventional flow with two sign changes -> two IRRs (10% and 20%).
+    result = irr([-100.0, 230.0, -132.0])
+    assert result.is_unique is False
+    assert len(result.all_irrs) == 2
+    assert result.all_irrs[0] == pytest.approx(0.10, rel=1e-6)
+    assert result.all_irrs[1] == pytest.approx(0.20, rel=1e-6)
+    assert result.irr == pytest.approx(0.10, rel=1e-6)  # smallest non-negative tie-break
+
+
+def test_irr_multi_root_each_zeros_npv() -> None:
+    cashflows = [-100.0, 230.0, -132.0]
+    for r in irr(cashflows).all_irrs:
+        assert npv(r, cashflows).npv == pytest.approx(0.0, abs=1e-6)
+
+
+def test_irr_unique_sets_flag() -> None:
+    result = irr([-100.0, 110.0])
+    assert result.is_unique is True
+    assert result.all_irrs == pytest.approx([0.10])
+    assert result.irr == pytest.approx(0.10, rel=1e-9)
+
+
+def test_irr_conventional_multi_period_unique() -> None:
+    result = irr([-1000.0, 500.0, 500.0, 500.0])
+    assert result.is_unique is True
+    assert result.irr == pytest.approx(0.23375, rel=1e-4)
+
+
+def test_xirr_unique_sets_flag() -> None:
+    flows = [_cf(2021, -1000.0), _cf(2022, 1100.0)]
+    result = xirr(flows)
+    assert result.is_unique is True
+    assert result.irr == pytest.approx(0.10, rel=1e-6)
