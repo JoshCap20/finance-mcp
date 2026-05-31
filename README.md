@@ -1,9 +1,13 @@
 # Finance MCP
 
-An MCP server of finance tools — deterministic financial calculators today, with a
-`yfinance` market-data wrapper and analysis prompts planned.
+An MCP server of finance tools: a `yfinance` market-data wrapper plus deterministic
+financial calculators. (Computed analytics and analysis prompts are planned.)
 
 ## Tools
+
+**Market data (yfinance)**
+- `get_quote` — current price snapshot for one or more tickers: price, change, day/52-week ranges, market cap (batched; cached briefly).
+- `get_price_history` — OHLCV bars plus a computed summary for a ticker, by period and interval (long windows are truncated; the summary covers the full window).
 
 **Time value & loans**
 - `time_value_of_money` — solve any one of present/future value, payment, rate, or periods (compound interest, annuities, CAGR); supports begin-of-period (annuity-due).
@@ -20,8 +24,9 @@ An MCP server of finance tools — deterministic financial calculators today, wi
 - `bond_price` — price plus Macaulay/modified duration and convexity at a given yield (priced on a coupon date).
 - `bond_ytm` — yield to maturity from a bond's market price.
 
-All tools are pure and deterministic, return typed structured results, and report
-invalid inputs as clear errors.
+The calculators are pure and deterministic; the market-data tools fetch live data
+(briefly cached) and surface source errors clearly. All tools return typed,
+structured results and report invalid inputs as clear errors.
 
 ## Run
 
