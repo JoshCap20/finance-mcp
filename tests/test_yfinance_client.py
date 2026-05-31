@@ -1,3 +1,5 @@
+import math
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -160,7 +162,7 @@ def test_get_price_history_drops_nan_rows() -> None:
     client = _client(factory=fake_ticker_factory(history_df=df))
     hist = client.get_price_history("AAPL", period="1mo", interval="1d")
     assert hist.summary.bars == 2
-    assert all(b.close == b.close for b in hist.bars)
+    assert all(math.isfinite(b.close) for b in hist.bars)
 
 
 def test_get_price_history_all_nan_raises() -> None:
@@ -176,6 +178,59 @@ def test_get_price_history_zero_start_close_no_crash() -> None:
     client = _client(factory=fake_ticker_factory(history_df=df))
     hist = client.get_price_history("AAPL", period="1mo", interval="1d")
     assert hist.summary.total_return_percent == 0.0
+
+
+def test_get_quote_inf_price_raises_symbol_not_found() -> None:
+    client = _client(
+        factory=fake_ticker_factory(fast_info={"last_price": float("inf"), "previous_close": 188.0})
+    )
+    with pytest.raises(SymbolNotFound):
+        client.get_quote(["X"])
+
+
+def test_get_price_history_drops_inf_rows() -> None:
+    df = make_history_df([100.0, 101.0, 102.0])
+    df.loc[df.index[1], "Close"] = float("inf")
+    client = _client(factory=fake_ticker_factory(history_df=df))
+    hist = client.get_price_history("AAPL", period="1mo", interval="1d")
+    assert hist.summary.bars == 2
+
+
+def test_get_price_history_all_inf_raises() -> None:
+    df = make_history_df([100.0])
+    df.loc[df.index[0], "Close"] = float("inf")
+    client = _client(factory=fake_ticker_factory(history_df=df))
+    with pytest.raises(SymbolNotFound):
+        client.get_price_history("AAPL", period="1mo", interval="1d")
+
+
+class _RaisingCurrencyFastInfo:
+    """fast_info stub whose `currency` property raises, last_price is fine."""
+
+    last_price = 190.0
+    previous_close = 188.0
+
+    @property
+    def currency(self) -> str:
+        raise RuntimeError("boom")
+
+
+def test_get_quote_fast_info_attr_error_becomes_data_unavailable() -> None:
+    def factory(_symbol: str) -> Any:
+        return SimpleNamespace(fast_info=_RaisingCurrencyFastInfo())
+
+    client = _client(factory=factory)
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_quote(["X"])
+    assert "boom" in str(exc.value)
+
+
+def test_get_price_history_parse_error_becomes_data_unavailable() -> None:
+    df = make_history_df([100.0, 101.0]).drop(columns=["Volume"])
+    client = _client(factory=fake_ticker_factory(history_df=df))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_price_history("AAPL", period="1mo", interval="1d")
+    assert "AAPL" in str(exc.value)
 
 
 def test_get_quote_distinct_symbols_cached_independently() -> None:

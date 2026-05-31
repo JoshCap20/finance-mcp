@@ -56,6 +56,13 @@ class YFinanceClient:
             fi = self._ticker(symbol).fast_info
             price = _opt(getattr(fi, "last_price", None))
             prev = _opt(getattr(fi, "previous_close", None))
+            currency = getattr(fi, "currency", None)
+            day_high = _opt(getattr(fi, "day_high", None))
+            day_low = _opt(getattr(fi, "day_low", None))
+            year_high = _opt(getattr(fi, "year_high", None))
+            year_low = _opt(getattr(fi, "year_low", None))
+            market_cap = _opt(getattr(fi, "market_cap", None))
+            volume = _opt(getattr(fi, "last_volume", None))
         except Exception as exc:  # surface any yfinance failure verbatim
             raise DataUnavailable(f"Failed to fetch quote for '{symbol}': {exc}") from exc
         if price is None:
@@ -64,17 +71,17 @@ class YFinanceClient:
         change_pct = (change / prev * 100.0) if (change is not None and prev) else None
         return Quote(
             symbol=symbol,
-            currency=getattr(fi, "currency", None),
+            currency=currency,
             price=price,
             previous_close=prev,
             change=change,
             change_percent=change_pct,
-            day_high=_opt(getattr(fi, "day_high", None)),
-            day_low=_opt(getattr(fi, "day_low", None)),
-            year_high=_opt(getattr(fi, "year_high", None)),
-            year_low=_opt(getattr(fi, "year_low", None)),
-            market_cap=_opt(getattr(fi, "market_cap", None)),
-            volume=_opt(getattr(fi, "last_volume", None)),
+            day_high=day_high,
+            day_low=day_low,
+            year_high=year_high,
+            year_low=year_low,
+            market_cap=market_cap,
+            volume=volume,
         )
 
     def get_price_history(self, symbol: str, period: str, interval: str) -> PriceHistory:
@@ -98,50 +105,59 @@ class YFinanceClient:
             raise SymbolNotFound(
                 f"No price history for '{symbol}'. Check the symbol/period/interval."
             )
-        all_bars: list[PriceBar] = []
-        for idx, row in df.iterrows():
-            o, h, low, c, v = (
-                float(row["Open"]),
-                float(row["High"]),
-                float(row["Low"]),
-                float(row["Close"]),
-                float(row["Volume"]),
+        try:
+            all_bars: list[PriceBar] = []
+            for idx, row in df.iterrows():
+                o, h, low, c, v = (
+                    float(row["Open"]),
+                    float(row["High"]),
+                    float(row["Low"]),
+                    float(row["Close"]),
+                    float(row["Volume"]),
+                )
+                if any(not math.isfinite(x) for x in (o, h, low, c, v)):
+                    continue
+                all_bars.append(
+                    PriceBar(
+                        date=idx.date().isoformat(), open=o, high=h, low=low, close=c, volume=v
+                    )
+                )
+            if not all_bars:
+                raise SymbolNotFound(
+                    f"No price history for '{symbol}'. Check the symbol/period/interval."
+                )
+            start_close = all_bars[0].close
+            total_return = (
+                ((all_bars[-1].close / start_close - 1.0) * 100.0) if start_close else 0.0
             )
-            if any(math.isnan(x) for x in (o, h, low, c, v)):
-                continue
-            all_bars.append(
-                PriceBar(date=idx.date().isoformat(), open=o, high=h, low=low, close=c, volume=v)
+            summary = PriceSummary(
+                start_date=all_bars[0].date,
+                end_date=all_bars[-1].date,
+                start_close=start_close,
+                end_close=all_bars[-1].close,
+                total_return_percent=total_return,
+                period_high=max(b.high for b in all_bars),
+                period_low=min(b.low for b in all_bars),
+                bars=len(all_bars),
             )
-        if not all_bars:
-            raise SymbolNotFound(
-                f"No price history for '{symbol}'. Check the symbol/period/interval."
+            truncated = len(all_bars) > self._max_bars
+            bars = all_bars[-self._max_bars :] if truncated else all_bars
+            return PriceHistory(
+                symbol=symbol,
+                period=period,
+                interval=interval,
+                bars=bars,
+                summary=summary,
+                truncated=truncated,
             )
-        start_close = all_bars[0].close
-        total_return = ((all_bars[-1].close / start_close - 1.0) * 100.0) if start_close else 0.0
-        summary = PriceSummary(
-            start_date=all_bars[0].date,
-            end_date=all_bars[-1].date,
-            start_close=start_close,
-            end_close=all_bars[-1].close,
-            total_return_percent=total_return,
-            period_high=max(b.high for b in all_bars),
-            period_low=min(b.low for b in all_bars),
-            bars=len(all_bars),
-        )
-        truncated = len(all_bars) > self._max_bars
-        bars = all_bars[-self._max_bars :] if truncated else all_bars
-        return PriceHistory(
-            symbol=symbol,
-            period=period,
-            interval=interval,
-            bars=bars,
-            summary=summary,
-            truncated=truncated,
-        )
+        except SymbolNotFound:
+            raise
+        except Exception as exc:  # surface any parsing failure verbatim
+            raise DataUnavailable(f"Failed to parse history for '{symbol}': {exc}") from exc
 
 
 def _opt(value: Any) -> float | None:
     if value is None:
         return None
     f = float(value)
-    return None if math.isnan(f) else f
+    return f if math.isfinite(f) else None

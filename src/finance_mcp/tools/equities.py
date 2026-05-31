@@ -24,7 +24,11 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
             list[str], Field(description="One or more ticker symbols, e.g. ['AAPL', 'MSFT'].")
         ],
     ) -> list[Quote]:
-        """Current price snapshot for one or more tickers (price, change, ranges, market cap)."""
+        """Current price snapshot for one or more tickers (price, change, ranges, market cap).
+
+        Fails (with a message naming the offending ticker) if ANY ticker has no data; on
+        failure the caller should retry without the offending symbol.
+        """
         try:
             return await asyncio.to_thread(client.get_quote, tickers)
         except DataUnavailable as exc:
@@ -34,7 +38,15 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
     async def get_price_history(
         ticker: Annotated[str, Field(description="Ticker symbol, e.g. 'AAPL'.")],
         period: Annotated[Period, Field(description="Look-back window.")] = "1mo",
-        interval: Annotated[Interval, Field(description="Bar interval.")] = "1d",
+        interval: Annotated[
+            Interval,
+            Field(
+                description=(
+                    "Bar interval. Intraday intervals (1m-1h) only support short look-backs "
+                    "(1m ~ 7 days, sub-daily ~ 60 days); use 1d+ for long periods."
+                )
+            ),
+        ] = "1d",
     ) -> PriceHistory:
         """Historical OHLCV bars plus a summary; long windows are truncated (summary is full)."""
         try:
