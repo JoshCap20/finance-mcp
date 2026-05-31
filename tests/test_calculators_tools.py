@@ -224,3 +224,28 @@ async def test_bond_ytm_tool_non_integer_periods_errors(client: Client[FastMCPTr
                 "frequency": 1,
             },
         )
+
+
+async def test_mirr_tool_registered(client: Client[FastMCPTransport]) -> None:
+    names = {t.name for t in await client.list_tools()}
+    assert "mirr" in names
+
+
+async def test_mirr_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "mirr",
+        {
+            "cashflows": [-1000.0, 500.0, 400.0, 300.0, 100.0],
+            "finance_rate": 0.10,
+            "reinvest_rate": 0.12,
+        },
+    )
+    assert result.data.mirr == pytest.approx(0.13168560, rel=1e-6)
+
+
+async def test_mirr_tool_invalid_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool(
+            "mirr",
+            {"cashflows": [-100.0, -50.0], "finance_rate": 0.1, "reinvest_rate": 0.1},
+        )

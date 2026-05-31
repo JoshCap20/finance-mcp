@@ -14,6 +14,7 @@ from finance_mcp.data.models import (
     DatedCashflow,
     IRRResult,
     LoanSchedule,
+    MIRRResult,
     NPVResult,
     RateConversionResult,
     TVMResult,
@@ -186,9 +187,37 @@ def register(mcp: FastMCP) -> None:
             Field(description="Cashflows by period; needs >=1 sign change. Outflows negative."),
         ],
     ) -> IRRResult:
-        """Internal rate of return (per period) of equally-spaced cashflows."""
+        """Internal rate of return (per period) of equally-spaced cashflows.
+
+        Non-conventional flows can have multiple IRRs (see all_irrs/is_unique); use
+        mirr for a single unambiguous figure.
+        """
         try:
             return calculators.irr(cashflows)
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def mirr(
+        cashflows: Annotated[
+            list[float],
+            Field(description="Cashflows by period; needs >=1 negative and >=1 positive."),
+        ],
+        finance_rate: Annotated[
+            float, Field(description="Rate to finance (discount) negative cashflows, as a decimal.")
+        ],
+        reinvest_rate: Annotated[
+            float,
+            Field(description="Rate to reinvest (compound) positive cashflows, as a decimal."),
+        ],
+    ) -> MIRRResult:
+        """Modified internal rate of return: single-valued, unlike irr.
+
+        The preferred figure for non-conventional cashflows (more than one sign change),
+        since it has exactly one solution given the finance and reinvestment rates.
+        """
+        try:
+            return calculators.mirr(cashflows, finance_rate, reinvest_rate)
         except InvalidInput as exc:
             raise ToolError(str(exc)) from exc
 

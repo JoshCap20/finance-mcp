@@ -9,6 +9,7 @@ from finance_mcp.data.calculators import (
     convert_rate,
     irr,
     loan_schedule,
+    mirr,
     npv,
     time_value_of_money,
     xirr,
@@ -483,3 +484,35 @@ def test_xirr_unique_sets_flag() -> None:
     result = xirr(flows)
     assert result.is_unique is True
     assert result.irr == pytest.approx(0.10, rel=1e-6)
+
+
+def test_mirr_known_value() -> None:
+    result = mirr([-1000.0, 500.0, 400.0, 300.0, 100.0], finance_rate=0.10, reinvest_rate=0.12)
+    assert result.mirr == pytest.approx(0.13168560, rel=1e-6)
+    assert result.finance_rate == 0.10
+    assert result.reinvest_rate == 0.12
+
+
+def test_mirr_single_value_for_multi_irr_flow() -> None:
+    # The flow that has two IRRs (10%, 20%) yields one deterministic MIRR.
+    result = mirr([-100.0, 230.0, -132.0], finance_rate=0.10, reinvest_rate=0.10)
+    # fv_pos = 230*1.1; pv_neg = -100 - 132/1.1^2; n = 2.
+    fv_pos = 230.0 * 1.10
+    pv_neg = 100.0 + 132.0 / 1.10**2
+    expected = (fv_pos / pv_neg) ** 0.5 - 1.0
+    assert result.mirr == pytest.approx(expected, rel=1e-9)
+
+
+def test_mirr_no_positive_raises() -> None:
+    with pytest.raises(InvalidInput):
+        mirr([-100.0, -50.0], finance_rate=0.1, reinvest_rate=0.1)
+
+
+def test_mirr_no_negative_raises() -> None:
+    with pytest.raises(InvalidInput):
+        mirr([100.0, 50.0], finance_rate=0.1, reinvest_rate=0.1)
+
+
+def test_mirr_invalid_rate_raises() -> None:
+    with pytest.raises(InvalidInput):
+        mirr([-100.0, 200.0], finance_rate=-1.0, reinvest_rate=0.1)

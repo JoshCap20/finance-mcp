@@ -69,6 +69,14 @@ class IRRResult(BaseModel):
     )
 
 
+class MIRRResult(BaseModel):
+    """Modified internal rate of return (always unique given the two rates)."""
+
+    mirr: float = Field(description="Modified IRR per period (annualize externally if needed).")
+    finance_rate: float = Field(description="Rate used to discount negative cashflows.")
+    reinvest_rate: float = Field(description="Rate used to compound positive cashflows.")
+
+
 class DatedCashflow(BaseModel):
     """A single cashflow on a calendar date (for XNPV/XIRR)."""
 

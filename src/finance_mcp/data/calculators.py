@@ -20,6 +20,7 @@ from finance_mcp.data.models import (
     DatedCashflow,
     IRRResult,
     LoanSchedule,
+    MIRRResult,
     NPVResult,
     RateConversionResult,
     TVMResult,
@@ -353,6 +354,36 @@ def irr(cashflows: list[float]) -> IRRResult:
     if not roots:
         raise InvalidInput("No internal rate of return exists in (-100%, 1000%]; consider mirr().")
     return _irr_result(roots)
+
+
+def mirr(cashflows: list[float], finance_rate: float, reinvest_rate: float) -> MIRRResult:
+    """Modified internal rate of return; always unique given the two rates.
+
+    Equally-spaced periods, cashflows[0] at t=0. Negative flows are financed at
+    ``finance_rate``; positive flows are reinvested at ``reinvest_rate``:
+
+        MIRR = ( FV(positives @ reinvest_rate) / -PV(negatives @ finance_rate) )**(1/n) - 1
+
+    Unlike ``irr`` this is single-valued, so it is the preferred figure for
+    non-conventional cashflows (more than one sign change).
+    """
+    if len(cashflows) < 2:
+        raise InvalidInput("mirr needs at least two cashflows.")
+    if finance_rate <= -1.0 or reinvest_rate <= -1.0:
+        raise InvalidInput("finance_rate and reinvest_rate must be greater than -1 (-100%).")
+    if not any(c > 0.0 for c in cashflows) or not any(c < 0.0 for c in cashflows):
+        raise InvalidInput("mirr needs at least one negative and one positive cashflow.")
+    n = len(cashflows) - 1
+    fv_pos = 0.0
+    pv_neg = 0.0
+    for t, cash in enumerate(cashflows):
+        if cash > 0.0:
+            fv_pos += cash * (1.0 + reinvest_rate) ** (n - t)
+        elif cash < 0.0:
+            pv_neg += cash / (1.0 + finance_rate) ** t
+    ratio: float = fv_pos / -pv_neg
+    result: float = ratio ** (1.0 / n) - 1.0
+    return MIRRResult(mirr=result, finance_rate=finance_rate, reinvest_rate=reinvest_rate)
 
 
 def xnpv(rate: float, cashflows: list[DatedCashflow]) -> NPVResult:
