@@ -9,6 +9,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.transports import FastMCPTransport
 
+from finance_mcp.data.yfinance_client import YFinanceClient
 from finance_mcp.server import create_server
 
 
@@ -76,3 +77,10 @@ def fake_ticker_factory(
         )
 
     return factory
+
+
+def make_client(**kw: Any) -> YFinanceClient:
+    factory = kw.pop("factory")
+    return YFinanceClient(
+        ticker_factory=factory, time_fn=FakeClock(), quote_ttl=30.0, history_ttl=300.0
+    )
