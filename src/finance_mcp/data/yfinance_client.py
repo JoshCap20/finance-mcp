@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import yfinance as yf
+from yfinance.exceptions import YFException
 
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
 from finance_mcp.data.models import PriceBar, PriceHistory, PriceSummary, Quote
@@ -63,10 +64,18 @@ class YFinanceClient:
             year_low = _opt(getattr(fi, "year_low", None))
             market_cap = _opt(getattr(fi, "market_cap", None))
             volume = _opt(getattr(fi, "last_volume", None))
-        except Exception as exc:  # surface any yfinance failure verbatim
+        except YFException as exc:
+            # yfinance's own typed errors (rate limit, etc.) — surface verbatim.
             raise DataUnavailable(f"Failed to fetch quote for '{symbol}': {exc}") from exc
+        except Exception as exc:
+            # fast_info leaks raw errors (e.g. KeyError) for symbols with no data.
+            raise SymbolNotFound(
+                f"No quote data for '{symbol}'. The symbol may be invalid or delisted."
+            ) from exc
         if price is None:
-            raise SymbolNotFound(f"No quote data for '{symbol}'. Check the ticker symbol.")
+            raise SymbolNotFound(
+                f"No quote data for '{symbol}'. The symbol may be invalid or delisted."
+            )
         change = (price - prev) if prev is not None else None
         change_pct = (change / prev * 100.0) if (change is not None and prev) else None
         return Quote(
@@ -96,9 +105,7 @@ class YFinanceClient:
 
     def _fetch_history(self, symbol: str, period: str, interval: str) -> PriceHistory:
         try:
-            df = self._ticker(symbol).history(
-                period=period, interval=interval, auto_adjust=True, raise_errors=True
-            )
+            df = self._ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
         except Exception as exc:  # surface any yfinance failure verbatim
             raise DataUnavailable(f"Failed to fetch history for '{symbol}': {exc}") from exc
         if df is None or df.empty:

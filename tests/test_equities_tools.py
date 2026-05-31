@@ -1,6 +1,7 @@
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from yfinance.exceptions import YFException
 
 from finance_mcp.server import create_server
 from tests.conftest import fake_ticker_factory, make_client, make_history_df
@@ -46,7 +47,9 @@ async def test_get_price_history_tool() -> None:
 
 async def test_get_quote_tool_surfaces_yfinance_message() -> None:
     server = create_server(
-        yf_client=make_client(factory=fake_ticker_factory(error=RuntimeError("yahoo: blocked")))
+        yf_client=make_client(
+            factory=fake_ticker_factory(fast_info_error=YFException("yahoo: blocked"))
+        )
     )
     async with Client(server) as client:
         with pytest.raises(ToolError) as exc:

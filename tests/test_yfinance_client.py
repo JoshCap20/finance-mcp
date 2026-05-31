@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from yfinance.exceptions import YFException
 
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
 from finance_mcp.data.models import PriceBar, PriceHistory, PriceSummary, Quote
@@ -99,10 +100,48 @@ def test_get_quote_missing_price_raises_symbol_not_found() -> None:
 
 
 def test_get_quote_surfaces_yfinance_error_message() -> None:
-    client = _client(factory=fake_ticker_factory(error=RuntimeError("yahoo says: rate limited")))
+    client = _client(
+        factory=fake_ticker_factory(fast_info_error=YFException("yahoo says: rate limited"))
+    )
     with pytest.raises(DataUnavailable) as exc:
         client.get_quote(["AAPL"])
     assert "yahoo says: rate limited" in str(exc.value)
+
+
+def test_get_quote_invalid_symbol_returns_clean_symbol_not_found() -> None:
+    client = _client(factory=fake_ticker_factory(fast_info_error=KeyError("exchangeTimezoneName")))
+    with pytest.raises(SymbolNotFound) as exc:
+        client.get_quote(["BAD"])
+    assert "No quote data for 'BAD'" in str(exc.value)
+    assert "exchangeTimezoneName" not in str(exc.value)
+
+
+def test_get_quote_none_price_is_symbol_not_found() -> None:
+    client = _client(factory=fake_ticker_factory(fast_info={"last_price": None}))
+    with pytest.raises(SymbolNotFound) as exc:
+        client.get_quote(["BAD"])
+    assert "No quote data for" in str(exc.value)
+
+
+def test_get_quote_no_second_network_call_on_failure() -> None:
+    calls = {"history": 0}
+
+    class _Ticker:
+        @property
+        def fast_info(self) -> Any:
+            raise KeyError("x")
+
+        def history(self, **_kwargs: Any) -> Any:
+            calls["history"] += 1
+            return None
+
+    def factory(_symbol: str) -> Any:
+        return _Ticker()
+
+    client = _client(factory=factory)
+    with pytest.raises(SymbolNotFound):
+        client.get_quote(["BAD"])
+    assert calls["history"] == 0
 
 
 def test_get_price_history_parses_bars_and_summary() -> None:
@@ -212,12 +251,14 @@ class _RaisingCurrencyFastInfo:
 
     @property
     def currency(self) -> str:
-        raise RuntimeError("boom")
+        raise YFException("boom")
 
 
 def test_get_quote_fast_info_attr_error_becomes_data_unavailable() -> None:
+    df = make_history_df([100.0])
+
     def factory(_symbol: str) -> Any:
-        return SimpleNamespace(fast_info=_RaisingCurrencyFastInfo())
+        return SimpleNamespace(fast_info=_RaisingCurrencyFastInfo(), history=lambda **_k: df)
 
     client = _client(factory=factory)
     with pytest.raises(DataUnavailable) as exc:

@@ -51,30 +51,32 @@ def fake_ticker_factory(
     fast_info: dict[str, Any] | None = None,
     history_df: pd.DataFrame | None = None,
     error: Exception | None = None,
+    fast_info_error: Exception | None = None,
+    history_error: Exception | None = None,
 ) -> Callable[[str], Any]:
     """Build a ticker factory returning a stub Ticker for any symbol.
 
-    If error is set, accessing .fast_info or calling .history() raises it.
+    The legacy ``error`` makes BOTH ``.fast_info`` access and ``.history()`` raise it.
+    ``fast_info_error`` makes only ``.fast_info`` access raise; ``history_error`` makes
+    only ``.history()`` raise. These compose so combined scenarios can be expressed.
     """
+    fi_exc = fast_info_error or error
+    hist_exc = history_error or error
 
-    class _ErrTicker:
-        def __init__(self, exc: Exception) -> None:
-            self._exc = exc
-
+    class _Ticker:
         @property
         def fast_info(self) -> Any:
-            raise self._exc
+            if fi_exc is not None:
+                raise fi_exc
+            return SimpleNamespace(**(fast_info or {}))
 
         def history(self, **_kwargs: Any) -> Any:
-            raise self._exc
+            if hist_exc is not None:
+                raise hist_exc
+            return history_df if history_df is not None else pd.DataFrame()
 
-    def factory(symbol: str) -> Any:
-        if error is not None:
-            return _ErrTicker(error)
-        return SimpleNamespace(
-            fast_info=SimpleNamespace(**(fast_info or {})),
-            history=lambda **_k: history_df if history_df is not None else pd.DataFrame(),
-        )
+    def factory(_symbol: str) -> Any:
+        return _Ticker()
 
     return factory
 
