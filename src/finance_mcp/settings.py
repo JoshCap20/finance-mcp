@@ -8,7 +8,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="FINANCE_MCP_", env_file=".env")
 
-    quote_cache_ttl_seconds: int = 60
+    quote_cache_ttl_seconds: int = 30
+    history_cache_ttl_seconds: int = 300
     fundamentals_cache_ttl_seconds: int = 3600
 
 

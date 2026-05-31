@@ -9,7 +9,14 @@ from finance_mcp.settings import get_settings
 
 def test_settings_defaults() -> None:
     settings = get_settings()
-    assert settings.quote_cache_ttl_seconds == 60
+    assert settings.quote_cache_ttl_seconds == 30
+    assert settings.fundamentals_cache_ttl_seconds == 3600
+
+
+def test_quote_ttl_default_is_30() -> None:
+    settings = get_settings()
+    assert settings.quote_cache_ttl_seconds == 30
+    assert settings.history_cache_ttl_seconds == 300
     assert settings.fundamentals_cache_ttl_seconds == 3600
 
 
