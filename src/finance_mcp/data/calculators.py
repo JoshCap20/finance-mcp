@@ -207,7 +207,10 @@ def loan_schedule(
 ) -> LoanSchedule:
     """Build an amortization summary for a fixed-rate loan or mortgage.
 
-    ``annual_rate`` is a decimal (e.g. 0.06 for 6%). ``extra_payment`` is an
+    ``annual_rate`` is a nominal APR compounded monthly: the periodic rate is
+    ``annual_rate / 12`` (not derived from an effective annual rate), and payments
+    are monthly. To use an effective annual rate, convert it first with
+    ``convert_rate(rate, 12, "effective_to_nominal")``. ``extra_payment`` is an
     additional amount applied to principal each month; it shortens the term.
     The summary (payment, totals, payoff count) is always computed; the full
     per-period rows are returned only when ``include_schedule`` is True.
@@ -301,6 +304,10 @@ def xnpv(rate: float, cashflows: list[DatedCashflow]) -> NPVResult:
 
     XNPV = sum(amount / (1 + rate)**((date - base_date).days / 365)). The annual
     ``rate`` discounts by actual elapsed days, so irregular spacing is handled.
+    Day count is Actual/365 fixed (matches Excel XNPV; leap years still divide by
+    365). The base date is the earliest cashflow, so the result is independent of
+    input order (Excel instead uses the first-listed date; with ordered input the
+    two agree).
     """
     if not cashflows:
         raise InvalidInput("cashflows must not be empty.")
@@ -315,7 +322,10 @@ def xnpv(rate: float, cashflows: list[DatedCashflow]) -> NPVResult:
 
 
 def xirr(cashflows: list[DatedCashflow]) -> IRRResult:
-    """Annualized internal rate of return of dated cashflows; needs >=1 sign change."""
+    """Annualized internal rate of return of dated cashflows; needs >=1 sign change.
+
+    Uses the same Actual/365 day count and earliest-date base as ``xnpv``.
+    """
     if len(cashflows) < 2:
         raise InvalidInput("xirr needs at least two cashflows.")
     if not _has_sign_change([cf.amount for cf in cashflows]):

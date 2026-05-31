@@ -145,7 +145,9 @@ def register(mcp: FastMCP) -> None:
     ) -> LoanSchedule:
         """Compute the monthly payment, total interest, and (optionally) the full schedule.
 
-        By default returns just the summary; set include_schedule=True for every row.
+        annual_rate is a nominal APR compounded monthly (periodic rate = annual_rate/12),
+        with monthly payments. By default returns just the summary; set
+        include_schedule=True for every row.
         """
         try:
             return calculators.loan_schedule(
@@ -198,7 +200,10 @@ def register(mcp: FastMCP) -> None:
             Field(description="Dated cashflows; discounted by actual days from the earliest date."),
         ],
     ) -> NPVResult:
-        """Net present value of cashflows on actual calendar dates (irregular spacing allowed)."""
+        """Net present value of cashflows on actual calendar dates (irregular spacing allowed).
+
+        Actual/365 day count (matches Excel XNPV); base date is the earliest cashflow.
+        """
         try:
             return calculators.xnpv(rate, cashflows)
         except InvalidInput as exc:
@@ -213,7 +218,10 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
     ) -> IRRResult:
-        """Annualized internal rate of return of cashflows on actual calendar dates."""
+        """Annualized internal rate of return of cashflows on actual calendar dates.
+
+        Actual/365 day count (matches Excel XIRR); base date is the earliest cashflow.
+        """
         try:
             return calculators.xirr(cashflows)
         except InvalidInput as exc:
