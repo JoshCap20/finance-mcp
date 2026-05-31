@@ -387,6 +387,10 @@ def bond_price(
     ``coupon_rate`` and ``ytm`` are annual decimals; ``frequency`` is coupons per year
     (2 = semiannual). Returns the price plus Macaulay/modified duration (years) and
     convexity (years^2).
+
+    Prices the bond AS OF A COUPON DATE: there is no accrued interest and no fractional
+    first period (on a coupon date the clean and dirty prices coincide). Therefore
+    ``years_to_maturity * frequency`` must be a whole number of coupon periods.
     """
     if face <= 0.0:
         raise InvalidInput("face must be positive.")
@@ -397,7 +401,14 @@ def bond_price(
     if ytm <= -1.0:
         raise InvalidInput("ytm must be greater than -1 (-100%).")
 
-    n = round(years_to_maturity * frequency)
+    periods = years_to_maturity * frequency
+    n = round(periods)
+    if abs(periods - n) > 1e-9:
+        raise InvalidInput(
+            "years_to_maturity * frequency must be a whole number of coupon periods "
+            f"(got {periods}); this calculator prices on a coupon date only. Choose a "
+            "maturity that lands on a coupon date (a multiple of 1/frequency)."
+        )
     if n < 1:
         raise InvalidInput("years_to_maturity * frequency must be at least one period.")
     periodic_coupon = face * coupon_rate / frequency

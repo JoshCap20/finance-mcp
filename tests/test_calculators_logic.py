@@ -425,3 +425,25 @@ def test_convert_rate_default_is_discrete() -> None:
     r = convert_rate(0.12, periods_per_year=12, direction="nominal_to_effective")
     assert r.converted_rate == pytest.approx(0.12682503, rel=1e-7)
     assert r.compounding == "discrete"
+
+
+def test_bond_price_non_integer_periods_raises() -> None:
+    # 2.5 years annual -> 2.5 periods, not a whole coupon count.
+    with pytest.raises(InvalidInput):
+        bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=2.5, ytm=0.06, frequency=1)
+
+
+def test_bond_price_fractional_periods_raises() -> None:
+    with pytest.raises(InvalidInput):
+        bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=9.99, ytm=0.06, frequency=2)
+
+
+def test_bond_price_half_year_semiannual_ok() -> None:
+    # 2.5 years semiannual -> 5 whole periods, prices fine.
+    r = bond_price(face=1000.0, coupon_rate=0.06, years_to_maturity=2.5, ytm=0.06, frequency=2)
+    assert r.price == pytest.approx(1000.0, rel=1e-9)
+
+
+def test_bond_ytm_non_integer_periods_raises() -> None:
+    with pytest.raises(InvalidInput):
+        bond_ytm(face=1000.0, coupon_rate=0.05, years_to_maturity=2.5, price=950.0, frequency=1)

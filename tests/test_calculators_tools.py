@@ -210,3 +210,17 @@ async def test_convert_rate_tool_continuous(client: Client[FastMCPTransport]) ->
     )
     assert result.data.converted_rate == pytest.approx(0.12749685, rel=1e-7)
     assert result.data.compounding == "continuous"
+
+
+async def test_bond_ytm_tool_non_integer_periods_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool(
+            "bond_ytm",
+            {
+                "face": 1000.0,
+                "coupon_rate": 0.05,
+                "years_to_maturity": 2.5,
+                "price": 950.0,
+                "frequency": 1,
+            },
+        )
