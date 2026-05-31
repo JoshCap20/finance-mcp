@@ -14,6 +14,7 @@ from finance_mcp.data.models import (
     DatedCashflow,
     IRRResult,
     LoanSchedule,
+    MIRRResult,
     NPVResult,
     RateConversionResult,
     TVMResult,
@@ -145,7 +146,9 @@ def register(mcp: FastMCP) -> None:
     ) -> LoanSchedule:
         """Compute the monthly payment, total interest, and (optionally) the full schedule.
 
-        By default returns just the summary; set include_schedule=True for every row.
+        annual_rate is a nominal APR compounded monthly (periodic rate = annual_rate/12),
+        with monthly payments. By default returns just the summary; set
+        include_schedule=True for every row.
         """
         try:
             return calculators.loan_schedule(
@@ -184,9 +187,37 @@ def register(mcp: FastMCP) -> None:
             Field(description="Cashflows by period; needs >=1 sign change. Outflows negative."),
         ],
     ) -> IRRResult:
-        """Internal rate of return (per period) of equally-spaced cashflows."""
+        """Internal rate of return (per period) of equally-spaced cashflows.
+
+        Non-conventional flows can have multiple IRRs (see all_irrs/is_unique); use
+        mirr for a single unambiguous figure.
+        """
         try:
             return calculators.irr(cashflows)
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def mirr(
+        cashflows: Annotated[
+            list[float],
+            Field(description="Cashflows by period; needs >=1 negative and >=1 positive."),
+        ],
+        finance_rate: Annotated[
+            float, Field(description="Rate to finance (discount) negative cashflows, as a decimal.")
+        ],
+        reinvest_rate: Annotated[
+            float,
+            Field(description="Rate to reinvest (compound) positive cashflows, as a decimal."),
+        ],
+    ) -> MIRRResult:
+        """Modified internal rate of return: single-valued, unlike irr.
+
+        The preferred figure for non-conventional cashflows (more than one sign change),
+        since it has exactly one solution given the finance and reinvestment rates.
+        """
+        try:
+            return calculators.mirr(cashflows, finance_rate, reinvest_rate)
         except InvalidInput as exc:
             raise ToolError(str(exc)) from exc
 
@@ -198,7 +229,10 @@ def register(mcp: FastMCP) -> None:
             Field(description="Dated cashflows; discounted by actual days from the earliest date."),
         ],
     ) -> NPVResult:
-        """Net present value of cashflows on actual calendar dates (irregular spacing allowed)."""
+        """Net present value of cashflows on actual calendar dates (irregular spacing allowed).
+
+        Actual/365 day count (matches Excel XNPV); base date is the earliest cashflow.
+        """
         try:
             return calculators.xnpv(rate, cashflows)
         except InvalidInput as exc:
@@ -213,7 +247,10 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
     ) -> IRRResult:
-        """Annualized internal rate of return of cashflows on actual calendar dates."""
+        """Annualized internal rate of return of cashflows on actual calendar dates.
+
+        Actual/365 day count (matches Excel XIRR); base date is the earliest cashflow.
+        """
         try:
             return calculators.xirr(cashflows)
         except InvalidInput as exc:
@@ -230,9 +267,19 @@ def register(mcp: FastMCP) -> None:
             Literal["nominal_to_effective", "effective_to_nominal"],
             Field(description="Which way to convert."),
         ],
+        compounding: Annotated[
+            Literal["discrete", "continuous"],
+            Field(
+                description="Compounding: 'discrete' uses periods_per_year; 'continuous' uses e^r."
+            ),
+        ] = "discrete",
     ) -> RateConversionResult:
-        """Convert between a nominal annual rate (APR) and an effective annual rate (APY/EAR)."""
+        """Convert between a nominal annual rate (APR) and an effective annual rate (APY/EAR).
+
+        Discrete uses periods_per_year (e.g. 12 = monthly); continuous ignores it
+        (EAR = e^nominal - 1; nominal = ln(1 + EAR)).
+        """
         try:
-            return calculators.convert_rate(rate, periods_per_year, direction)
+            return calculators.convert_rate(rate, periods_per_year, direction, compounding)
         except InvalidInput as exc:
             raise ToolError(str(exc)) from exc

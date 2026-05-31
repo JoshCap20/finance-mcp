@@ -196,3 +196,56 @@ async def test_bond_price_tool_invalid_errors(client: Client[FastMCPTransport]) 
                 "frequency": 2,
             },
         )
+
+
+async def test_convert_rate_tool_continuous(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "convert_rate",
+        {
+            "rate": 0.12,
+            "periods_per_year": 1,
+            "direction": "nominal_to_effective",
+            "compounding": "continuous",
+        },
+    )
+    assert result.data.converted_rate == pytest.approx(0.12749685, rel=1e-7)
+    assert result.data.compounding == "continuous"
+
+
+async def test_bond_ytm_tool_non_integer_periods_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool(
+            "bond_ytm",
+            {
+                "face": 1000.0,
+                "coupon_rate": 0.05,
+                "years_to_maturity": 2.5,
+                "price": 950.0,
+                "frequency": 1,
+            },
+        )
+
+
+async def test_mirr_tool_registered(client: Client[FastMCPTransport]) -> None:
+    names = {t.name for t in await client.list_tools()}
+    assert "mirr" in names
+
+
+async def test_mirr_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "mirr",
+        {
+            "cashflows": [-1000.0, 500.0, 400.0, 300.0, 100.0],
+            "finance_rate": 0.10,
+            "reinvest_rate": 0.12,
+        },
+    )
+    assert result.data.mirr == pytest.approx(0.13168560, rel=1e-6)
+
+
+async def test_mirr_tool_invalid_errors(client: Client[FastMCPTransport]) -> None:
+    with pytest.raises(ToolError):
+        await client.call_tool(
+            "mirr",
+            {"cashflows": [-100.0, -50.0], "finance_rate": 0.1, "reinvest_rate": 0.1},
+        )

@@ -9,6 +9,7 @@ from finance_mcp.data.calculators import (
     convert_rate,
     irr,
     loan_schedule,
+    mirr,
     npv,
     time_value_of_money,
     xirr,
@@ -387,3 +388,131 @@ def test_bond_ytm_par_equals_coupon() -> None:
 def test_bond_ytm_invalid_price_raises() -> None:
     with pytest.raises(InvalidInput):
         bond_ytm(face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, price=0.0, frequency=2)
+
+
+def test_nominal_to_effective_continuous() -> None:
+    r = convert_rate(
+        0.12, periods_per_year=1, direction="nominal_to_effective", compounding="continuous"
+    )
+    assert r.converted_rate == pytest.approx(0.12749685, rel=1e-7)
+    assert r.compounding == "continuous"
+
+
+def test_effective_to_nominal_continuous() -> None:
+    r = convert_rate(
+        0.12, periods_per_year=1, direction="effective_to_nominal", compounding="continuous"
+    )
+    assert r.converted_rate == pytest.approx(0.11332869, rel=1e-7)
+
+
+def test_continuous_roundtrip() -> None:
+    ear = convert_rate(
+        0.12, periods_per_year=1, direction="nominal_to_effective", compounding="continuous"
+    ).converted_rate
+    back = convert_rate(
+        ear, periods_per_year=1, direction="effective_to_nominal", compounding="continuous"
+    ).converted_rate
+    assert back == pytest.approx(0.12, rel=1e-9)
+
+
+def test_continuous_effective_invalid_raises() -> None:
+    with pytest.raises(InvalidInput):
+        convert_rate(
+            -2.0, periods_per_year=1, direction="effective_to_nominal", compounding="continuous"
+        )
+
+
+def test_convert_rate_default_is_discrete() -> None:
+    r = convert_rate(0.12, periods_per_year=12, direction="nominal_to_effective")
+    assert r.converted_rate == pytest.approx(0.12682503, rel=1e-7)
+    assert r.compounding == "discrete"
+
+
+def test_bond_price_non_integer_periods_raises() -> None:
+    # 2.5 years annual -> 2.5 periods, not a whole coupon count.
+    with pytest.raises(InvalidInput):
+        bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=2.5, ytm=0.06, frequency=1)
+
+
+def test_bond_price_fractional_periods_raises() -> None:
+    with pytest.raises(InvalidInput):
+        bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=9.99, ytm=0.06, frequency=2)
+
+
+def test_bond_price_half_year_semiannual_ok() -> None:
+    # 2.5 years semiannual -> 5 whole periods, prices fine.
+    r = bond_price(face=1000.0, coupon_rate=0.06, years_to_maturity=2.5, ytm=0.06, frequency=2)
+    assert r.price == pytest.approx(1000.0, rel=1e-9)
+
+
+def test_bond_ytm_non_integer_periods_raises() -> None:
+    with pytest.raises(InvalidInput):
+        bond_ytm(face=1000.0, coupon_rate=0.05, years_to_maturity=2.5, price=950.0, frequency=1)
+
+
+def test_irr_multi_root_reports_both() -> None:
+    # Non-conventional flow with two sign changes -> two IRRs (10% and 20%).
+    result = irr([-100.0, 230.0, -132.0])
+    assert result.is_unique is False
+    assert len(result.all_irrs) == 2
+    assert result.all_irrs[0] == pytest.approx(0.10, rel=1e-6)
+    assert result.all_irrs[1] == pytest.approx(0.20, rel=1e-6)
+    assert result.irr == pytest.approx(0.10, rel=1e-6)  # smallest non-negative tie-break
+
+
+def test_irr_multi_root_each_zeros_npv() -> None:
+    cashflows = [-100.0, 230.0, -132.0]
+    for r in irr(cashflows).all_irrs:
+        assert npv(r, cashflows).npv == pytest.approx(0.0, abs=1e-6)
+
+
+def test_irr_unique_sets_flag() -> None:
+    result = irr([-100.0, 110.0])
+    assert result.is_unique is True
+    assert result.all_irrs == pytest.approx([0.10])
+    assert result.irr == pytest.approx(0.10, rel=1e-9)
+
+
+def test_irr_conventional_multi_period_unique() -> None:
+    result = irr([-1000.0, 500.0, 500.0, 500.0])
+    assert result.is_unique is True
+    assert result.irr == pytest.approx(0.23375, rel=1e-4)
+
+
+def test_xirr_unique_sets_flag() -> None:
+    flows = [_cf(2021, -1000.0), _cf(2022, 1100.0)]
+    result = xirr(flows)
+    assert result.is_unique is True
+    assert result.irr == pytest.approx(0.10, rel=1e-6)
+
+
+def test_mirr_known_value() -> None:
+    result = mirr([-1000.0, 500.0, 400.0, 300.0, 100.0], finance_rate=0.10, reinvest_rate=0.12)
+    assert result.mirr == pytest.approx(0.13168560, rel=1e-6)
+    assert result.finance_rate == 0.10
+    assert result.reinvest_rate == 0.12
+
+
+def test_mirr_single_value_for_multi_irr_flow() -> None:
+    # The flow that has two IRRs (10%, 20%) yields one deterministic MIRR.
+    result = mirr([-100.0, 230.0, -132.0], finance_rate=0.10, reinvest_rate=0.10)
+    # fv_pos = 230*1.1; pv_neg = -100 - 132/1.1^2; n = 2.
+    fv_pos = 230.0 * 1.10
+    pv_neg = 100.0 + 132.0 / 1.10**2
+    expected = (fv_pos / pv_neg) ** 0.5 - 1.0
+    assert result.mirr == pytest.approx(expected, rel=1e-9)
+
+
+def test_mirr_no_positive_raises() -> None:
+    with pytest.raises(InvalidInput):
+        mirr([-100.0, -50.0], finance_rate=0.1, reinvest_rate=0.1)
+
+
+def test_mirr_no_negative_raises() -> None:
+    with pytest.raises(InvalidInput):
+        mirr([100.0, 50.0], finance_rate=0.1, reinvest_rate=0.1)
+
+
+def test_mirr_invalid_rate_raises() -> None:
+    with pytest.raises(InvalidInput):
+        mirr([-100.0, 200.0], finance_rate=-1.0, reinvest_rate=0.1)
