@@ -4,6 +4,7 @@ import math
 import pytest
 
 from finance_mcp.data.calculators import (
+    bond_price,
     convert_rate,
     irr,
     loan_schedule,
@@ -334,3 +335,36 @@ def test_zero_rate_when_begin_equals_end() -> None:
         solve_for="fv", pv=0.0, pmt=-100.0, rate=0.0, nper=10.0, when="begin"
     ).solved_value
     assert end == pytest.approx(begin, rel=1e-12)
+
+
+def test_bond_price_at_par() -> None:
+    r = bond_price(face=1000.0, coupon_rate=0.06, years_to_maturity=10.0, ytm=0.06, frequency=2)
+    assert r.price == pytest.approx(1000.0, rel=1e-9)
+
+
+def test_bond_price_discount() -> None:
+    r = bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, ytm=0.06, frequency=2)
+    assert r.price == pytest.approx(925.61, rel=1e-4)
+
+
+def test_zero_coupon_duration_equals_maturity() -> None:
+    r = bond_price(face=1000.0, coupon_rate=0.0, years_to_maturity=5.0, ytm=0.04, frequency=1)
+    assert r.price == pytest.approx(1000.0 / 1.04**5, rel=1e-9)
+    assert r.macaulay_duration == pytest.approx(5.0, rel=1e-9)
+    assert r.modified_duration == pytest.approx(5.0 / 1.04, rel=1e-9)
+    assert r.convexity == pytest.approx(5.0 * 6.0 / 1.04**2, rel=1e-9)
+
+
+def test_bond_current_yield() -> None:
+    r = bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, ytm=0.06, frequency=2)
+    assert r.current_yield == pytest.approx(50.0 / r.price, rel=1e-9)
+
+
+def test_bond_price_invalid_frequency_raises() -> None:
+    with pytest.raises(InvalidInput):
+        bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, ytm=0.06, frequency=0)
+
+
+def test_bond_price_invalid_face_raises() -> None:
+    with pytest.raises(InvalidInput):
+        bond_price(face=0.0, coupon_rate=0.05, years_to_maturity=10.0, ytm=0.06, frequency=2)

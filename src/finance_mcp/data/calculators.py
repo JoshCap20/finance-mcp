@@ -15,6 +15,7 @@ from typing import Literal
 from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import (
     AmortizationRow,
+    BondAnalytics,
     DatedCashflow,
     IRRResult,
     LoanSchedule,
@@ -348,4 +349,54 @@ def convert_rate(
         periods_per_year=periods_per_year,
         direction=direction,
         converted_rate=converted,
+    )
+
+
+def bond_price(
+    face: float,
+    coupon_rate: float,
+    years_to_maturity: float,
+    ytm: float,
+    frequency: int = 2,
+) -> BondAnalytics:
+    """Price a fixed-coupon bond and its duration/convexity at a given yield (ytm).
+
+    ``coupon_rate`` and ``ytm`` are annual decimals; ``frequency`` is coupons per year
+    (2 = semiannual). Returns the price plus Macaulay/modified duration (years) and
+    convexity (years^2).
+    """
+    if face <= 0.0:
+        raise InvalidInput("face must be positive.")
+    if frequency < 1:
+        raise InvalidInput("frequency must be at least 1.")
+    if years_to_maturity <= 0.0:
+        raise InvalidInput("years_to_maturity must be positive.")
+    if ytm <= -1.0:
+        raise InvalidInput("ytm must be greater than -1 (-100%).")
+
+    n = round(years_to_maturity * frequency)
+    if n < 1:
+        raise InvalidInput("years_to_maturity * frequency must be at least one period.")
+    periodic_coupon = face * coupon_rate / frequency
+    y = ytm / frequency
+
+    price = 0.0
+    weighted_time = 0.0
+    convexity_sum = 0.0
+    for k in range(1, n + 1):
+        cash = periodic_coupon + (face if k == n else 0.0)
+        pv = cash / (1.0 + y) ** k
+        price += pv
+        weighted_time += k * pv
+        convexity_sum += cash * k * (k + 1) / (1.0 + y) ** (k + 2)
+
+    macaulay = (weighted_time / price) / frequency
+    modified = macaulay / (1.0 + y)
+    convexity = (convexity_sum / price) / (frequency**2)
+    return BondAnalytics(
+        price=price,
+        current_yield=face * coupon_rate / price,
+        macaulay_duration=macaulay,
+        modified_duration=modified,
+        convexity=convexity,
     )
