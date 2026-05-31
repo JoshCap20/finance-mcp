@@ -135,3 +135,59 @@ def test_get_price_history_truncates_to_max_bars() -> None:
     assert len(hist.bars) == 5
     assert hist.truncated is True
     assert hist.summary.bars == 10
+
+
+def test_get_quote_nan_price_raises_symbol_not_found() -> None:
+    client = _client(
+        factory=fake_ticker_factory(fast_info={"last_price": float("nan"), "previous_close": 188.0})
+    )
+    with pytest.raises(SymbolNotFound):
+        client.get_quote(["AAPL"])
+
+
+def test_get_quote_nan_previous_close_yields_none_change() -> None:
+    fi = {**QUOTE_FI, "previous_close": float("nan")}
+    client = _client(factory=fake_ticker_factory(fast_info=fi))
+    [q] = client.get_quote(["AAPL"])
+    assert q.price == 190.0
+    assert q.change is None
+    assert q.change_percent is None
+
+
+def test_get_price_history_drops_nan_rows() -> None:
+    df = make_history_df([100.0, 101.0, 102.0])
+    df.loc[df.index[1], "Close"] = float("nan")
+    client = _client(factory=fake_ticker_factory(history_df=df))
+    hist = client.get_price_history("AAPL", period="1mo", interval="1d")
+    assert hist.summary.bars == 2
+    assert all(b.close == b.close for b in hist.bars)
+
+
+def test_get_price_history_all_nan_raises() -> None:
+    df = make_history_df([100.0])
+    df.loc[df.index[0], "Close"] = float("nan")
+    client = _client(factory=fake_ticker_factory(history_df=df))
+    with pytest.raises(SymbolNotFound):
+        client.get_price_history("AAPL", period="1mo", interval="1d")
+
+
+def test_get_price_history_zero_start_close_no_crash() -> None:
+    df = make_history_df([0.0, 5.0])
+    client = _client(factory=fake_ticker_factory(history_df=df))
+    hist = client.get_price_history("AAPL", period="1mo", interval="1d")
+    assert hist.summary.total_return_percent == 0.0
+
+
+def test_get_quote_distinct_symbols_cached_independently() -> None:
+    calls = {"n": 0}
+
+    def counting_factory(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(fast_info=QUOTE_FI)(symbol)
+
+    client = YFinanceClient(
+        ticker_factory=counting_factory, time_fn=FakeClock(), quote_ttl=30.0, history_ttl=300.0
+    )
+    results = client.get_quote(["AAPL", "MSFT"])
+    assert [r.symbol for r in results] == ["AAPL", "MSFT"]
+    assert calls["n"] == 2

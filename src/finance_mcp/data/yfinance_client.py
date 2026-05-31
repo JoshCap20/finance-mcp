@@ -5,6 +5,7 @@ DataUnavailable/SymbolNotFound whose message is surfaced to the caller verbatim,
 because we cannot enumerate every Yahoo failure mode.
 """
 
+import math
 import time
 from collections.abc import Callable
 from typing import Any, cast
@@ -53,8 +54,8 @@ class YFinanceClient:
     def _fetch_quote(self, symbol: str) -> Quote:
         try:
             fi = self._ticker(symbol).fast_info
-            price = getattr(fi, "last_price", None)
-            prev = getattr(fi, "previous_close", None)
+            price = _opt(getattr(fi, "last_price", None))
+            prev = _opt(getattr(fi, "previous_close", None))
         except Exception as exc:  # surface any yfinance failure verbatim
             raise DataUnavailable(f"Failed to fetch quote for '{symbol}': {exc}") from exc
         if price is None:
@@ -64,8 +65,8 @@ class YFinanceClient:
         return Quote(
             symbol=symbol,
             currency=getattr(fi, "currency", None),
-            price=float(price),
-            previous_close=float(prev) if prev is not None else None,
+            price=price,
+            previous_close=prev,
             change=change,
             change_percent=change_pct,
             day_high=_opt(getattr(fi, "day_high", None)),
@@ -97,23 +98,32 @@ class YFinanceClient:
             raise SymbolNotFound(
                 f"No price history for '{symbol}'. Check the symbol/period/interval."
             )
-        all_bars = [
-            PriceBar(
-                date=idx.date().isoformat(),
-                open=float(row["Open"]),
-                high=float(row["High"]),
-                low=float(row["Low"]),
-                close=float(row["Close"]),
-                volume=float(row["Volume"]),
+        all_bars: list[PriceBar] = []
+        for idx, row in df.iterrows():
+            o, h, low, c, v = (
+                float(row["Open"]),
+                float(row["High"]),
+                float(row["Low"]),
+                float(row["Close"]),
+                float(row["Volume"]),
             )
-            for idx, row in df.iterrows()
-        ]
+            if any(math.isnan(x) for x in (o, h, low, c, v)):
+                continue
+            all_bars.append(
+                PriceBar(date=idx.date().isoformat(), open=o, high=h, low=low, close=c, volume=v)
+            )
+        if not all_bars:
+            raise SymbolNotFound(
+                f"No price history for '{symbol}'. Check the symbol/period/interval."
+            )
+        start_close = all_bars[0].close
+        total_return = ((all_bars[-1].close / start_close - 1.0) * 100.0) if start_close else 0.0
         summary = PriceSummary(
             start_date=all_bars[0].date,
             end_date=all_bars[-1].date,
-            start_close=all_bars[0].close,
+            start_close=start_close,
             end_close=all_bars[-1].close,
-            total_return_percent=(all_bars[-1].close / all_bars[0].close - 1.0) * 100.0,
+            total_return_percent=total_return,
             period_high=max(b.high for b in all_bars),
             period_low=min(b.low for b in all_bars),
             bars=len(all_bars),
@@ -131,4 +141,7 @@ class YFinanceClient:
 
 
 def _opt(value: Any) -> float | None:
-    return float(value) if value is not None else None
+    if value is None:
+        return None
+    f = float(value)
+    return None if math.isnan(f) else f
