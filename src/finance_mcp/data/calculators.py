@@ -328,19 +328,30 @@ def convert_rate(
     rate: float,
     periods_per_year: int,
     direction: Literal["nominal_to_effective", "effective_to_nominal"],
+    compounding: Literal["discrete", "continuous"] = "discrete",
 ) -> RateConversionResult:
     """Convert between a nominal annual rate and an effective annual rate (EAR).
 
-    With m = ``periods_per_year`` compounding periods:
+    Discrete (m = ``periods_per_year`` compounding periods):
       nominal_to_effective: EAR = (1 + nominal/m)**m - 1
       effective_to_nominal: nominal = m * ((1 + EAR)**(1/m) - 1)
+    Continuous (``periods_per_year`` is ignored):
+      nominal_to_effective: EAR = exp(nominal) - 1
+      effective_to_nominal: nominal = ln(1 + EAR)
     """
     if periods_per_year < 1:
         raise InvalidInput("periods_per_year must be at least 1.")
-    if direction == "nominal_to_effective":
+    if compounding == "continuous":
+        if direction == "nominal_to_effective":
+            converted: float = math.exp(rate) - 1.0
+        else:
+            if 1.0 + rate <= 0.0:
+                raise InvalidInput("Effective rate must be greater than -1 (-100%).")
+            converted = math.log(1.0 + rate)
+    elif direction == "nominal_to_effective":
         if 1.0 + rate / periods_per_year <= 0.0:
             raise InvalidInput("Invalid nominal rate for the given compounding frequency.")
-        converted: float = (1.0 + rate / periods_per_year) ** periods_per_year - 1.0
+        converted = (1.0 + rate / periods_per_year) ** periods_per_year - 1.0
     else:
         if 1.0 + rate <= 0.0:
             raise InvalidInput("Effective rate must be greater than -1 (-100%).")
@@ -349,6 +360,7 @@ def convert_rate(
         input_rate=rate,
         periods_per_year=periods_per_year,
         direction=direction,
+        compounding=compounding,
         converted_rate=converted,
     )
 

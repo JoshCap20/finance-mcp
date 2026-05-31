@@ -68,6 +68,9 @@ class RateConversionResult(BaseModel):
     direction: Literal["nominal_to_effective", "effective_to_nominal"] = Field(
         description="Conversion performed."
     )
+    compounding: Literal["discrete", "continuous"] = Field(
+        default="discrete", description="Compounding convention used for the conversion."
+    )
     converted_rate: float = Field(description="The resulting rate, as a decimal.")
 
 

@@ -230,9 +230,19 @@ def register(mcp: FastMCP) -> None:
             Literal["nominal_to_effective", "effective_to_nominal"],
             Field(description="Which way to convert."),
         ],
+        compounding: Annotated[
+            Literal["discrete", "continuous"],
+            Field(
+                description="Compounding: 'discrete' uses periods_per_year; 'continuous' uses e^r."
+            ),
+        ] = "discrete",
     ) -> RateConversionResult:
-        """Convert between a nominal annual rate (APR) and an effective annual rate (APY/EAR)."""
+        """Convert between a nominal annual rate (APR) and an effective annual rate (APY/EAR).
+
+        Discrete uses periods_per_year (e.g. 12 = monthly); continuous ignores it
+        (EAR = e^nominal - 1; nominal = ln(1 + EAR)).
+        """
         try:
-            return calculators.convert_rate(rate, periods_per_year, direction)
+            return calculators.convert_rate(rate, periods_per_year, direction, compounding)
         except InvalidInput as exc:
             raise ToolError(str(exc)) from exc

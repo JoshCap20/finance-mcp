@@ -196,3 +196,17 @@ async def test_bond_price_tool_invalid_errors(client: Client[FastMCPTransport]) 
                 "frequency": 2,
             },
         )
+
+
+async def test_convert_rate_tool_continuous(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "convert_rate",
+        {
+            "rate": 0.12,
+            "periods_per_year": 1,
+            "direction": "nominal_to_effective",
+            "compounding": "continuous",
+        },
+    )
+    assert result.data.converted_rate == pytest.approx(0.12749685, rel=1e-7)
+    assert result.data.compounding == "continuous"

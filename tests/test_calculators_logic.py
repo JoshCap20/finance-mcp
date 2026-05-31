@@ -387,3 +387,41 @@ def test_bond_ytm_par_equals_coupon() -> None:
 def test_bond_ytm_invalid_price_raises() -> None:
     with pytest.raises(InvalidInput):
         bond_ytm(face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, price=0.0, frequency=2)
+
+
+def test_nominal_to_effective_continuous() -> None:
+    r = convert_rate(
+        0.12, periods_per_year=1, direction="nominal_to_effective", compounding="continuous"
+    )
+    assert r.converted_rate == pytest.approx(0.12749685, rel=1e-7)
+    assert r.compounding == "continuous"
+
+
+def test_effective_to_nominal_continuous() -> None:
+    r = convert_rate(
+        0.12, periods_per_year=1, direction="effective_to_nominal", compounding="continuous"
+    )
+    assert r.converted_rate == pytest.approx(0.11332869, rel=1e-7)
+
+
+def test_continuous_roundtrip() -> None:
+    ear = convert_rate(
+        0.12, periods_per_year=1, direction="nominal_to_effective", compounding="continuous"
+    ).converted_rate
+    back = convert_rate(
+        ear, periods_per_year=1, direction="effective_to_nominal", compounding="continuous"
+    ).converted_rate
+    assert back == pytest.approx(0.12, rel=1e-9)
+
+
+def test_continuous_effective_invalid_raises() -> None:
+    with pytest.raises(InvalidInput):
+        convert_rate(
+            -2.0, periods_per_year=1, direction="effective_to_nominal", compounding="continuous"
+        )
+
+
+def test_convert_rate_default_is_discrete() -> None:
+    r = convert_rate(0.12, periods_per_year=12, direction="nominal_to_effective")
+    assert r.converted_rate == pytest.approx(0.12682503, rel=1e-7)
+    assert r.compounding == "discrete"
