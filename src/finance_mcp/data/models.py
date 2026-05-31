@@ -69,3 +69,19 @@ class RateConversionResult(BaseModel):
         description="Conversion performed."
     )
     converted_rate: float = Field(description="The resulting rate, as a decimal.")
+
+
+class BondAnalytics(BaseModel):
+    """Price and interest-rate risk metrics for a fixed-coupon bond."""
+
+    price: float = Field(description="Present value (clean price) of the bond.")
+    current_yield: float = Field(description="Annual coupon divided by price.")
+    macaulay_duration: float = Field(description="Macaulay duration in years.")
+    modified_duration: float = Field(description="Modified duration in years (price sensitivity).")
+    convexity: float = Field(description="Convexity in years^2.")
+
+
+class BondYTM(BaseModel):
+    """Yield to maturity solved from a bond's market price."""
+
+    yield_to_maturity: float = Field(description="Annual yield to maturity, as a decimal.")

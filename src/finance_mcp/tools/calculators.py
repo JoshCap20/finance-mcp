@@ -9,6 +9,8 @@ from pydantic import Field
 from finance_mcp.data import calculators
 from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import (
+    BondAnalytics,
+    BondYTM,
     DatedCashflow,
     IRRResult,
     LoanSchedule,
@@ -49,16 +51,74 @@ def register(mcp: FastMCP) -> None:
             float | None,
             Field(description="Number of periods."),
         ] = None,
+        when: Annotated[
+            Literal["end", "begin"],
+            Field(description="Payment timing: 'end' (ordinary) or 'begin' (annuity-due)."),
+        ] = "end",
     ) -> TVMResult:
         """Solve compound interest / present & future value / annuity payment / period count / CAGR.
 
         Covers most personal-finance math via one equation. Examples: future value of a
         deposit (solve_for='fv'), a loan/mortgage payment (solve_for='pmt'), or a CAGR
-        between two values with no interim payments (solve_for='rate', pmt=0).
+        between two values with no interim payments (solve_for='rate', pmt=0). Use
+        when='begin' for begin-of-period (annuity-due) payments.
         """
         try:
             return calculators.time_value_of_money(
-                solve_for=solve_for, pv=pv, fv=fv, pmt=pmt, rate=rate, nper=nper
+                solve_for=solve_for, pv=pv, fv=fv, pmt=pmt, rate=rate, nper=nper, when=when
+            )
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def bond_price(
+        face: Annotated[float, Field(gt=0, description="Face (par) value of the bond.")],
+        coupon_rate: Annotated[
+            float,
+            Field(description="Annual coupon rate as a decimal, e.g. 0.05 for 5%."),
+        ],
+        years_to_maturity: Annotated[float, Field(gt=0, description="Years until maturity.")],
+        ytm: Annotated[
+            float,
+            Field(description="Annual yield to maturity as a decimal, e.g. 0.06 for 6%."),
+        ],
+        frequency: Annotated[
+            int, Field(gt=0, description="Coupon payments per year, e.g. 2 for semiannual.")
+        ] = 2,
+    ) -> BondAnalytics:
+        """Price a fixed-coupon bond at a given yield, with duration and convexity."""
+        try:
+            return calculators.bond_price(
+                face=face,
+                coupon_rate=coupon_rate,
+                years_to_maturity=years_to_maturity,
+                ytm=ytm,
+                frequency=frequency,
+            )
+        except InvalidInput as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    def bond_ytm(
+        face: Annotated[float, Field(gt=0, description="Face (par) value of the bond.")],
+        coupon_rate: Annotated[
+            float,
+            Field(description="Annual coupon rate as a decimal, e.g. 0.05 for 5%."),
+        ],
+        years_to_maturity: Annotated[float, Field(gt=0, description="Years until maturity.")],
+        price: Annotated[float, Field(gt=0, description="Current market price of the bond.")],
+        frequency: Annotated[
+            int, Field(gt=0, description="Coupon payments per year, e.g. 2 for semiannual.")
+        ] = 2,
+    ) -> BondYTM:
+        """Solve the annual yield to maturity that prices the bond at the given market price."""
+        try:
+            return calculators.bond_ytm(
+                face=face,
+                coupon_rate=coupon_rate,
+                years_to_maturity=years_to_maturity,
+                price=price,
+                frequency=frequency,
             )
         except InvalidInput as exc:
             raise ToolError(str(exc)) from exc

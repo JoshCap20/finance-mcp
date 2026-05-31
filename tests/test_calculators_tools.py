@@ -140,3 +140,59 @@ async def test_convert_rate_tool_invalid_nominal_errors(client: Client[FastMCPTr
             "convert_rate",
             {"rate": -20.0, "periods_per_year": 12, "direction": "nominal_to_effective"},
         )
+
+
+async def test_bond_tools_registered(client: Client[FastMCPTransport]) -> None:
+    names = {t.name for t in await client.list_tools()}
+    assert {"bond_price", "bond_ytm"} <= names
+
+
+async def test_bond_price_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "bond_price",
+        {
+            "face": 1000.0,
+            "coupon_rate": 0.06,
+            "years_to_maturity": 10.0,
+            "ytm": 0.06,
+            "frequency": 2,
+        },
+    )
+    assert result.data.price == pytest.approx(1000.0, rel=1e-6)
+
+
+async def test_bond_ytm_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "bond_ytm",
+        {
+            "face": 1000.0,
+            "coupon_rate": 0.06,
+            "years_to_maturity": 10.0,
+            "price": 1000.0,
+            "frequency": 2,
+        },
+    )
+    assert result.data.yield_to_maturity == pytest.approx(0.06, rel=1e-6)
+
+
+async def test_tvm_when_begin_tool(client: Client[FastMCPTransport]) -> None:
+    result = await client.call_tool(
+        "time_value_of_money",
+        {"solve_for": "fv", "pv": 0.0, "pmt": -100.0, "rate": 0.05, "nper": 10.0, "when": "begin"},
+    )
+    assert result.data.solved_value == pytest.approx(1320.679, rel=1e-5)
+
+
+async def test_bond_price_tool_invalid_errors(client: Client[FastMCPTransport]) -> None:
+    # ytm <= -1 is not schema-blocked, so it reaches the data layer and surfaces as ToolError.
+    with pytest.raises(ToolError):
+        await client.call_tool(
+            "bond_price",
+            {
+                "face": 1000.0,
+                "coupon_rate": 0.05,
+                "years_to_maturity": 10.0,
+                "ytm": -2.0,
+                "frequency": 2,
+            },
+        )

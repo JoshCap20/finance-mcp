@@ -15,6 +15,8 @@ from typing import Literal
 from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import (
     AmortizationRow,
+    BondAnalytics,
+    BondYTM,
     DatedCashflow,
     IRRResult,
     LoanSchedule,
@@ -58,28 +60,31 @@ def _require(name: str, value: float | None) -> float:
     return value
 
 
-def _fv(pv: float, pmt: float, rate: float, nper: float) -> float:
+def _fv(pv: float, pmt: float, rate: float, nper: float, due: bool = False) -> float:
     if rate == 0.0:
         return -(pv + pmt * nper)
     growth: float = (1.0 + rate) ** nper
-    return -(pv * growth + pmt * (growth - 1.0) / rate)
+    mult = (1.0 + rate) if due else 1.0
+    return -(pv * growth + pmt * mult * (growth - 1.0) / rate)
 
 
-def _pv(fv: float, pmt: float, rate: float, nper: float) -> float:
+def _pv(fv: float, pmt: float, rate: float, nper: float, due: bool = False) -> float:
     if rate == 0.0:
         return -(fv + pmt * nper)
     growth: float = (1.0 + rate) ** nper
-    return -(fv + pmt * (growth - 1.0) / rate) / growth
+    mult = (1.0 + rate) if due else 1.0
+    return -(fv + pmt * mult * (growth - 1.0) / rate) / growth
 
 
-def _pmt(pv: float, fv: float, rate: float, nper: float) -> float:
+def _pmt(pv: float, fv: float, rate: float, nper: float, due: bool = False) -> float:
     if rate == 0.0:
         return -(pv + fv) / nper
     growth: float = (1.0 + rate) ** nper
-    return -(pv * growth + fv) * rate / (growth - 1.0)
+    mult = (1.0 + rate) if due else 1.0
+    return -(pv * growth + fv) * rate / (mult * (growth - 1.0))
 
 
-def _nper(pv: float, fv: float, pmt: float, rate: float) -> float:
+def _nper(pv: float, fv: float, pmt: float, rate: float, due: bool = False) -> float:
     if rate == 0.0:
         if pmt == 0.0:
             raise InvalidInput("Cannot solve for nper when both rate and pmt are zero.")
@@ -90,7 +95,8 @@ def _nper(pv: float, fv: float, pmt: float, rate: float) -> float:
         if ratio <= 0.0:
             raise InvalidInput("No real solution for nper with the given pv/fv signs.")
         return math.log(ratio) / math.log(1.0 + rate)
-    k = pmt / rate
+    mult = (1.0 + rate) if due else 1.0
+    k = pmt * mult / rate
     numerator = k - fv
     denominator = k + pv
     if denominator == 0.0 or numerator / denominator <= 0.0:
@@ -98,8 +104,8 @@ def _nper(pv: float, fv: float, pmt: float, rate: float) -> float:
     return math.log(numerator / denominator) / math.log(1.0 + rate)
 
 
-def _rate(pv: float, fv: float, pmt: float, nper: float) -> float:
-    # Closed form when there are no periodic payments (CAGR).
+def _rate(pv: float, fv: float, pmt: float, nper: float, due: bool = False) -> float:
+    # Closed form when there are no periodic payments (CAGR); timing is irrelevant.
     if pmt == 0.0:
         if pv == 0.0:
             raise InvalidInput("Cannot solve for rate when pv and pmt are both zero.")
@@ -110,7 +116,7 @@ def _rate(pv: float, fv: float, pmt: float, nper: float) -> float:
         return growth_factor - 1.0
 
     # General case: solve f(r) = fv(pv, pmt, r, nper) - fv_target = 0 numerically.
-    return _bisect(lambda r: _fv(pv, pmt, r, nper) - fv)
+    return _bisect(lambda r: _fv(pv, pmt, r, nper, due) - fv)
 
 
 def time_value_of_money(
@@ -120,14 +126,16 @@ def time_value_of_money(
     pmt: float | None = None,
     rate: float | None = None,
     nper: float | None = None,
+    when: Literal["end", "begin"] = "end",
 ) -> TVMResult:
     """Solve a time-value-of-money problem for one unknown variable.
 
     Provide every variable except the one named by ``solve_for``. ``pmt`` defaults
     to 0 when omitted and not being solved for. Covers compound interest, present/
     future value, annuity payments, period count, and CAGR (solve for ``rate`` with
-    ``pmt=0``).
+    ``pmt=0``). ``when`` selects end- or begin-of-period payments (begin = annuity-due).
     """
+    due = when == "begin"
     pmt_known = 0.0 if (pmt is None and solve_for != "pmt") else pmt
 
     if solve_for == "fv":
@@ -136,6 +144,7 @@ def time_value_of_money(
             _require("pmt", pmt_known),
             _require("rate", rate),
             _require("nper", nper),
+            due,
         )
     elif solve_for == "pv":
         value = _pv(
@@ -143,6 +152,7 @@ def time_value_of_money(
             _require("pmt", pmt_known),
             _require("rate", rate),
             _require("nper", nper),
+            due,
         )
     elif solve_for == "pmt":
         value = _pmt(
@@ -150,6 +160,7 @@ def time_value_of_money(
             _require("fv", fv),
             _require("rate", rate),
             _require("nper", nper),
+            due,
         )
     elif solve_for == "nper":
         value = _nper(
@@ -157,6 +168,7 @@ def time_value_of_money(
             _require("fv", fv),
             _require("pmt", pmt_known),
             _require("rate", rate),
+            due,
         )
     else:  # rate
         value = _rate(
@@ -164,6 +176,7 @@ def time_value_of_money(
             _require("fv", fv),
             _require("pmt", pmt_known),
             _require("nper", nper),
+            due,
         )
 
     resolved: dict[str, float | None] = {
@@ -338,3 +351,69 @@ def convert_rate(
         direction=direction,
         converted_rate=converted,
     )
+
+
+def bond_price(
+    face: float,
+    coupon_rate: float,
+    years_to_maturity: float,
+    ytm: float,
+    frequency: int = 2,
+) -> BondAnalytics:
+    """Price a fixed-coupon bond and its duration/convexity at a given yield (ytm).
+
+    ``coupon_rate`` and ``ytm`` are annual decimals; ``frequency`` is coupons per year
+    (2 = semiannual). Returns the price plus Macaulay/modified duration (years) and
+    convexity (years^2).
+    """
+    if face <= 0.0:
+        raise InvalidInput("face must be positive.")
+    if frequency < 1:
+        raise InvalidInput("frequency must be at least 1.")
+    if years_to_maturity <= 0.0:
+        raise InvalidInput("years_to_maturity must be positive.")
+    if ytm <= -1.0:
+        raise InvalidInput("ytm must be greater than -1 (-100%).")
+
+    n = round(years_to_maturity * frequency)
+    if n < 1:
+        raise InvalidInput("years_to_maturity * frequency must be at least one period.")
+    periodic_coupon = face * coupon_rate / frequency
+    y = ytm / frequency
+
+    price = 0.0
+    weighted_time = 0.0
+    convexity_sum = 0.0
+    for k in range(1, n + 1):
+        cash = periodic_coupon + (face if k == n else 0.0)
+        pv = cash / (1.0 + y) ** k
+        price += pv
+        weighted_time += k * pv
+        convexity_sum += cash * k * (k + 1) / (1.0 + y) ** (k + 2)
+
+    macaulay = (weighted_time / price) / frequency
+    modified = macaulay / (1.0 + y)
+    convexity = (convexity_sum / price) / (frequency**2)
+    return BondAnalytics(
+        price=price,
+        current_yield=face * coupon_rate / price,
+        macaulay_duration=macaulay,
+        modified_duration=modified,
+        convexity=convexity,
+    )
+
+
+def bond_ytm(
+    face: float,
+    coupon_rate: float,
+    years_to_maturity: float,
+    price: float,
+    frequency: int = 2,
+) -> BondYTM:
+    """Solve the annual yield to maturity that prices the bond at ``price``."""
+    if price <= 0.0:
+        raise InvalidInput("price must be positive.")
+    rate = _bisect(
+        lambda y: bond_price(face, coupon_rate, years_to_maturity, y, frequency).price - price
+    )
+    return BondYTM(yield_to_maturity=rate)
