@@ -68,6 +68,7 @@ def fake_ticker_factory(
     dividends: pd.Series | None = None,
     splits: pd.Series | None = None,
     info_error: Exception | None = None,
+    recommendations: pd.DataFrame | None = None,
 ) -> Callable[[str], Any]:
     """Build a ticker factory returning a stub Ticker for any symbol.
 
@@ -119,6 +120,10 @@ def fake_ticker_factory(
         def splits(self) -> Any:
             return splits if splits is not None else pd.Series(dtype=float)
 
+        @property
+        def recommendations(self) -> Any:
+            return recommendations if recommendations is not None else pd.DataFrame()
+
         def __getattr__(self, name: str) -> Any:
             if name in _FINANCIALS_ATTRS:
                 if financials_error is not None:
@@ -132,8 +137,41 @@ def fake_ticker_factory(
     return factory
 
 
+def make_recommendations_df(
+    rows: list[tuple[str, int, int, int, int, int]],
+) -> pd.DataFrame:
+    """Build a yfinance-shaped recommendations frame.
+
+    Each row is (period, strongBuy, buy, hold, sell, strongSell).
+    """
+    return pd.DataFrame(rows, columns=["period", "strongBuy", "buy", "hold", "sell", "strongSell"])
+
+
+def fake_search_factory(
+    quotes: list[dict[str, Any]] | None = None,
+    error: Exception | None = None,
+) -> Callable[[str], Any]:
+    """Return a callable that mimics ``yf.Search``.
+
+    The returned callable accepts ``(query, **kwargs)``; if ``error`` is set it
+    raises it, otherwise it returns an object whose ``.quotes`` attribute is
+    ``quotes or []``.
+    """
+
+    def _search(query: str, **kwargs: Any) -> Any:
+        if error is not None:
+            raise error
+        return SimpleNamespace(quotes=quotes or [])
+
+    return _search
+
+
 def make_client(**kw: Any) -> YFinanceClient:
     factory = kw.pop("factory")
+    search = kw.pop("search_factory", None)
+    extra: dict[str, Any] = {}
+    if search is not None:
+        extra["search_factory"] = search
     return YFinanceClient(
-        ticker_factory=factory, time_fn=FakeClock(), quote_ttl=30.0, history_ttl=300.0
+        ticker_factory=factory, time_fn=FakeClock(), quote_ttl=30.0, history_ttl=300.0, **extra
     )

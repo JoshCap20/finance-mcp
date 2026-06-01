@@ -5,10 +5,7 @@ and deterministic financial calculators. (Analysis prompts are planned.)
 
 Immediate roadmap:
 
-1. Additional yfinance wrappers - financial statements, news, etc.
-
-- get_analyst_data (recommendations, price targets, estimates)
-- search_symbols (resolve a company name to a ticker)
+1. Additional yfinance wrappers - get_news (recent headlines for a ticker)
 
 2. More computed analytics
 
@@ -26,6 +23,8 @@ Immediate roadmap:
 - `get_price_history` — OHLCV bars plus a computed summary for a ticker, by period and interval (long windows are truncated; the summary covers the full window).
 - `get_financials` — income statement, balance sheet, or cash flow (annual or quarterly) as line items by period; values in the company's reporting currency, with an optional line-item filter.
 - `get_company_profile` — sector, industry, market cap, P/E, beta, business summary, plus recent dividends and stock splits.
+- `get_analyst_data` — sell-side analyst consensus: price targets, consensus recommendation, and the recent rating trend (analyst counts over the last four months).
+- `search_symbols` — resolve a company or instrument name to ticker symbol(s), best match first, across all instrument types (equity, ETF, crypto, …).
 
 **Analytics**
 

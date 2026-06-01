@@ -1,3 +1,5 @@
+from typing import Any
+
 import pandas as pd
 import pytest
 from fastmcp import Client
@@ -7,10 +9,12 @@ from yfinance.exceptions import YFException
 from finance_mcp.data.errors import DataUnavailable
 from finance_mcp.server import create_server
 from tests.conftest import (
+    fake_search_factory,
     fake_ticker_factory,
     make_client,
     make_financials_df,
     make_history_df,
+    make_recommendations_df,
     make_series,
 )
 
@@ -161,3 +165,95 @@ async def test_get_company_profile_tool_invalid_errors() -> None:
     async with Client(server) as client:
         with pytest.raises(ToolError):
             await client.call_tool("get_company_profile", {"ticker": "BAD"})
+
+
+ANALYST_INFO = {
+    "longName": "Apple Inc.",
+    "currency": "USD",
+    "currentPrice": 190.0,
+    "recommendationKey": "buy",
+    "recommendationMean": 1.9,
+    "numberOfAnalystOpinions": 40,
+    "targetMeanPrice": 210.0,
+    "targetMedianPrice": 208.0,
+    "targetHighPrice": 250.0,
+    "targetLowPrice": 170.0,
+}
+
+
+async def test_get_analyst_data_tool() -> None:
+    recs = make_recommendations_df(
+        [
+            ("0m", 12, 20, 8, 0, 0),
+            ("-1m", 11, 21, 8, 0, 0),
+            ("-2m", 10, 20, 9, 1, 0),
+            ("-3m", 10, 19, 9, 1, 0),
+        ]
+    )
+    server = create_server(
+        yf_client=make_client(factory=fake_ticker_factory(info=ANALYST_INFO, recommendations=recs))
+    )
+    async with Client(server) as client:
+        names = {t.name for t in await client.list_tools()}
+        assert {"get_analyst_data", "search_symbols"} <= names
+        result = await client.call_tool("get_analyst_data", {"ticker": "AAPL"})
+        assert result.data.recommendation_mean == 1.9
+        assert result.data.target_mean_price == 210.0
+        assert result.data.currency == "USD"
+        assert len(result.data.recommendation_trend) == 4
+        assert result.data.recommendation_trend[0].period == "0m"
+
+
+async def test_get_analyst_data_tool_no_coverage_errors() -> None:
+    server = create_server(
+        yf_client=make_client(factory=fake_ticker_factory(info={"longName": "SPDR ETF"}))
+    )
+    async with Client(server) as client:
+        with pytest.raises(ToolError):
+            await client.call_tool("get_analyst_data", {"ticker": "SPY"})
+
+
+async def test_search_symbols_tool() -> None:
+    quotes: list[dict[str, Any]] = [
+        {
+            "symbol": "AAPL",
+            "longname": "Apple Inc.",
+            "quoteType": "EQUITY",
+            "exchDisp": "NASDAQ",
+            "score": 9000.0,
+        },
+        {"symbol": "APLE", "shortname": "Apple Hospitality", "quoteType": "REIT"},
+    ]
+    server = create_server(
+        yf_client=make_client(
+            factory=fake_ticker_factory(), search_factory=fake_search_factory(quotes=quotes)
+        )
+    )
+    async with Client(server) as client:
+        result = await client.call_tool("search_symbols", {"query": "Apple"})
+        assert [m.symbol for m in result.data.matches] == ["AAPL", "APLE"]
+        assert result.data.matches[0].quote_type == "EQUITY"
+
+
+async def test_search_symbols_tool_empty_is_not_error() -> None:
+    server = create_server(
+        yf_client=make_client(
+            factory=fake_ticker_factory(), search_factory=fake_search_factory(quotes=[])
+        )
+    )
+    async with Client(server) as client:
+        result = await client.call_tool("search_symbols", {"query": "zzzznope"})
+        assert result.data.matches == []
+
+
+async def test_search_symbols_tool_surfaces_error() -> None:
+    server = create_server(
+        yf_client=make_client(
+            factory=fake_ticker_factory(),
+            search_factory=fake_search_factory(error=RuntimeError("yahoo: search down")),
+        )
+    )
+    async with Client(server) as client:
+        with pytest.raises(ToolError) as exc:
+            await client.call_tool("search_symbols", {"query": "Apple"})
+        assert "yahoo: search down" in str(exc.value)

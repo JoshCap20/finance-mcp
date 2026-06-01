@@ -9,6 +9,7 @@ from pydantic import Field
 
 from finance_mcp.data.errors import DataUnavailable
 from finance_mcp.data.models import (
+    AnalystData,
     CompanyProfile,
     FinancialStatement,
     HistoryInterval,
@@ -17,6 +18,7 @@ from finance_mcp.data.models import (
     Quote,
     Statement,
     StatementPeriod,
+    SymbolSearchResult,
 )
 from finance_mcp.data.yfinance_client import YFinanceClient
 
@@ -100,5 +102,41 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         """
         try:
             return await asyncio.to_thread(client.get_company_profile, ticker)
+        except DataUnavailable as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    async def get_analyst_data(
+        ticker: Annotated[str, Field(description="Ticker symbol, e.g. 'AAPL'.")],
+    ) -> AnalystData:
+        """Sell-side analyst consensus: price targets, the consensus recommendation, and the
+        recent rating trend (analyst counts over the last four months).
+
+        recommendation_mean runs 1.0 (strong buy) to 5.0 (strong sell). Price targets and
+        current_price are in the result's currency. ETFs, indices, and crypto have no
+        analyst coverage and return an error.
+        """
+        try:
+            return await asyncio.to_thread(client.get_analyst_data, ticker)
+        except DataUnavailable as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    async def search_symbols(
+        query: Annotated[
+            str, Field(description="Company or instrument name to resolve, e.g. 'Apple'.")
+        ],
+        max_results: Annotated[
+            int, Field(ge=1, le=20, description="Maximum number of matches to return.")
+        ] = 8,
+    ) -> SymbolSearchResult:
+        """Resolve a company or instrument name to ticker symbol(s), best match first.
+
+        Returns all instrument types (EQUITY, ETF, CRYPTOCURRENCY, FUTURE, INDEX, …); use each
+        match's quote_type to choose. Use this to find a symbol before calling the other tools.
+        An unmatched query returns an empty match list (not an error).
+        """
+        try:
+            return await asyncio.to_thread(client.search_symbols, query, max_results)
         except DataUnavailable as exc:
             raise ToolError(str(exc)) from exc

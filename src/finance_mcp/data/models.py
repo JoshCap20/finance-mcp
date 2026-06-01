@@ -305,6 +305,97 @@ class KeyMetrics(BaseModel):
     book_value: float | None = Field(default=None, description="Book value per share.")
 
 
+class RecommendationPeriod(BaseModel):
+    """Analyst recommendation counts for one period bucket."""
+
+    period: str = Field(
+        description="Period bucket relative to the current month: '0m' = current month, "
+        "'-1m' = one month ago, '-2m' = two months ago, '-3m' = three months ago."
+    )
+    strong_buy: int = Field(description="Number of analysts with a Strong Buy rating.")
+    buy: int = Field(description="Number of analysts with a Buy rating.")
+    hold: int = Field(description="Number of analysts with a Hold rating.")
+    sell: int = Field(description="Number of analysts with a Sell rating.")
+    strong_sell: int = Field(description="Number of analysts with a Strong Sell rating.")
+
+
+class AnalystData(BaseModel):
+    """Sell-side analyst consensus and price targets as reported by Yahoo."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    currency: str | None = Field(
+        default=None,
+        description="Currency (ISO 4217, e.g. 'USD') for all *_price fields.",
+    )
+    current_price: float | None = Field(
+        default=None, description="Latest traded price, in the result's currency."
+    )
+    recommendation_key: str | None = Field(
+        default=None,
+        description="Consensus recommendation string, e.g. 'buy', 'hold', 'strong_buy'.",
+    )
+    recommendation_mean: float | None = Field(
+        default=None,
+        description="Mean analyst recommendation on a 1-5 scale: 1.0 = Strong Buy, "
+        "2.0 = Buy, 3.0 = Hold, 4.0 = Sell, 5.0 = Strong Sell.",
+    )
+    number_of_analysts: int | None = Field(
+        default=None,
+        description="Number of analysts contributing to the consensus estimates.",
+    )
+    target_mean_price: float | None = Field(
+        default=None, description="Mean analyst 12-month price target, in the result's currency."
+    )
+    target_median_price: float | None = Field(
+        default=None,
+        description="Median analyst 12-month price target, in the result's currency.",
+    )
+    target_high_price: float | None = Field(
+        default=None, description="Highest analyst 12-month price target, in the result's currency."
+    )
+    target_low_price: float | None = Field(
+        default=None, description="Lowest analyst 12-month price target, in the result's currency."
+    )
+    recommendation_trend: list[RecommendationPeriod] = Field(
+        default_factory=list,
+        description="Per-period recommendation counts, newest first (up to 4 months). "
+        "Empty list if no analyst coverage data is available.",
+    )
+
+
+class SymbolMatch(BaseModel):
+    """One search hit resolving a name/query to a tradable symbol."""
+
+    symbol: str = Field(description="Ticker symbol, e.g. 'AAPL'.")
+    name: str | None = Field(
+        default=None, description="Company or instrument long name, or short name as a fallback."
+    )
+    quote_type: str | None = Field(
+        default=None,
+        description="Instrument type returned by Yahoo: EQUITY, ETF, CRYPTOCURRENCY, "
+        "FUTURE, INDEX, MUTUALFUND, or similar.",
+    )
+    exchange: str | None = Field(
+        default=None,
+        description="Exchange display name where the instrument trades, e.g. 'NASDAQ'.",
+    )
+    sector: str | None = Field(default=None, description="Sector classification, if available.")
+    industry: str | None = Field(default=None, description="Industry classification, if available.")
+    score: float | None = Field(
+        default=None,
+        description="Yahoo relevance score for this result (higher = better match to the query).",
+    )
+
+
+class SymbolSearchResult(BaseModel):
+    """Search results for a query, best-match first."""
+
+    query: str = Field(description="The search query that produced these results.")
+    matches: list[SymbolMatch] = Field(
+        description="Matching symbols ordered by relevance (best match first)."
+    )
+
+
 class PerformanceStats(BaseModel):
     """Return and risk statistics computed from daily closes over the requested window."""
 

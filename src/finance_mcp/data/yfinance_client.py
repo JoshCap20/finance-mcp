@@ -16,6 +16,7 @@ from yfinance.exceptions import YFException
 from finance_mcp.data import analytics
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
 from finance_mcp.data.models import (
+    AnalystData,
     CompanyProfile,
     DividendEvent,
     FinancialStatement,
@@ -25,9 +26,12 @@ from finance_mcp.data.models import (
     PriceHistory,
     PriceSummary,
     Quote,
+    RecommendationPeriod,
     SplitEvent,
     Statement,
     StatementPeriod,
+    SymbolMatch,
+    SymbolSearchResult,
 )
 
 DEFAULT_MAX_BARS = 260
@@ -50,6 +54,7 @@ class YFinanceClient:
     def __init__(
         self,
         ticker_factory: Callable[[str], Any] = yf.Ticker,
+        search_factory: Callable[[str], Any] = yf.Search,
         time_fn: Callable[[], float] = time.monotonic,
         quote_ttl: float = 30.0,
         history_ttl: float = 300.0,
@@ -57,6 +62,9 @@ class YFinanceClient:
         max_bars: int = DEFAULT_MAX_BARS,
     ) -> None:
         self._ticker = ticker_factory
+        # yf.Search is called with keyword args (max_results/news_count/lists_count);
+        # widen to Callable[..., Any] so those kwargs typecheck.
+        self._search: Callable[..., Any] = search_factory
         self._now = time_fn
         self._quote_ttl = quote_ttl
         self._history_ttl = history_ttl
@@ -376,6 +384,117 @@ class YFinanceClient:
             )
         except Exception as exc:  # surface any mapping failure verbatim
             raise DataUnavailable(f"Failed to parse metrics for '{symbol}': {exc}") from exc
+
+    def get_analyst_data(self, symbol: str) -> AnalystData:
+        return cast(
+            AnalystData,
+            self._cached(
+                ("analyst", symbol),
+                self._fundamentals_ttl,
+                lambda: self._fetch_analyst(symbol),
+            ),
+        )
+
+    def _fetch_analyst(self, symbol: str) -> AnalystData:
+        try:
+            ticker = self._ticker(symbol)
+            info = ticker.info
+            recommendations = ticker.recommendations
+        except YFException as exc:
+            raise DataUnavailable(f"Failed to fetch analyst data for '{symbol}': {exc}") from exc
+        except Exception as exc:  # raw leak for symbols with no data
+            raise SymbolNotFound(
+                f"No analyst data for '{symbol}'. The symbol may be invalid or delisted."
+            ) from exc
+        if not info or not (info.get("longName") or info.get("shortName")):
+            raise SymbolNotFound(
+                f"No analyst data for '{symbol}'. The symbol may be invalid or delisted."
+            )
+        try:
+            mean = _opt(info.get("recommendationMean"))
+            analysts = _opt_int(info.get("numberOfAnalystOpinions"))
+            target_mean = _opt(info.get("targetMeanPrice"))
+            target_median = _opt(info.get("targetMedianPrice"))
+            target_high = _opt(info.get("targetHighPrice"))
+            target_low = _opt(info.get("targetLowPrice"))
+        except Exception as exc:  # non-numeric values from the source
+            raise DataUnavailable(f"Failed to parse analyst data for '{symbol}': {exc}") from exc
+        targets = (target_mean, target_median, target_high, target_low)
+        if mean is None and analysts is None and all(t is None for t in targets):
+            raise DataUnavailable(
+                f"No analyst coverage for '{symbol}'. It may be an ETF, index, or other "
+                "instrument without sell-side analyst data."
+            )
+        try:
+            return AnalystData(
+                symbol=symbol,
+                currency=info.get("currency"),
+                current_price=_opt(info.get("currentPrice")),
+                recommendation_key=info.get("recommendationKey"),
+                recommendation_mean=mean,
+                number_of_analysts=analysts,
+                target_mean_price=target_mean,
+                target_median_price=target_median,
+                target_high_price=target_high,
+                target_low_price=target_low,
+                recommendation_trend=_recommendation_trend(recommendations),
+            )
+        except Exception as exc:  # surface any parsing failure verbatim
+            raise DataUnavailable(f"Failed to parse analyst data for '{symbol}': {exc}") from exc
+
+    def search_symbols(self, query: str, max_results: int = 8) -> SymbolSearchResult:
+        return cast(
+            SymbolSearchResult,
+            self._cached(
+                ("search", query, str(max_results)),
+                self._fundamentals_ttl,
+                lambda: self._fetch_search(query, max_results),
+            ),
+        )
+
+    def _fetch_search(self, query: str, max_results: int) -> SymbolSearchResult:
+        try:
+            result = self._search(query, max_results=max_results, news_count=0, lists_count=0)
+            quotes = result.quotes
+        except Exception as exc:  # a failed search is a data issue, not a missing symbol
+            raise DataUnavailable(f"Search failed for '{query}': {exc}") from exc
+        if not quotes:
+            return SymbolSearchResult(query=query, matches=[])
+        try:
+            matches = [_symbol_match(q) for q in quotes if q.get("symbol")]
+            return SymbolSearchResult(query=query, matches=matches)
+        except Exception as exc:  # surface any parsing failure verbatim
+            raise DataUnavailable(f"Failed to parse search results for '{query}': {exc}") from exc
+
+
+def _recommendation_trend(df: Any) -> list[RecommendationPeriod]:
+    if df is None or len(df) == 0:
+        return []
+    periods: list[RecommendationPeriod] = []
+    for row in df.to_dict("records"):
+        periods.append(
+            RecommendationPeriod(
+                period=str(row.get("period", "")),
+                strong_buy=_opt_int(row.get("strongBuy")) or 0,
+                buy=_opt_int(row.get("buy")) or 0,
+                hold=_opt_int(row.get("hold")) or 0,
+                sell=_opt_int(row.get("sell")) or 0,
+                strong_sell=_opt_int(row.get("strongSell")) or 0,
+            )
+        )
+    return periods
+
+
+def _symbol_match(q: dict[str, Any]) -> SymbolMatch:
+    return SymbolMatch(
+        symbol=str(q["symbol"]),
+        name=q.get("longname") or q.get("shortname"),
+        quote_type=q.get("quoteType"),
+        exchange=q.get("exchDisp"),
+        sector=q.get("sectorDisp"),
+        industry=q.get("industryDisp"),
+        score=_opt(q.get("score")),
+    )
 
 
 def _dividend_events(series: Any, limit: int) -> list[DividendEvent]:
