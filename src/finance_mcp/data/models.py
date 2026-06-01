@@ -6,6 +6,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 TVMVariable = Literal["pv", "fv", "pmt", "rate", "nper"]
+Statement = Literal["income", "balance", "cashflow"]
+StatementPeriod = Literal["annual", "quarterly"]
+HistoryPeriod = Literal["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
+HistoryInterval = Literal["1m", "5m", "15m", "30m", "1h", "1d", "1wk", "1mo"]
+RateDirection = Literal["nominal_to_effective", "effective_to_nominal"]
+Compounding = Literal["discrete", "continuous"]
 
 
 class TVMResult(BaseModel):
@@ -89,10 +95,8 @@ class RateConversionResult(BaseModel):
 
     input_rate: float = Field(description="The rate provided, as a decimal.")
     periods_per_year: int = Field(description="Compounding periods per year used.")
-    direction: Literal["nominal_to_effective", "effective_to_nominal"] = Field(
-        description="Conversion performed."
-    )
-    compounding: Literal["discrete", "continuous"] = Field(
+    direction: RateDirection = Field(description="Conversion performed.")
+    compounding: Compounding = Field(
         default="discrete", description="Compounding convention used for the conversion."
     )
     converted_rate: float = Field(description="The resulting rate, as a decimal.")
@@ -182,8 +186,8 @@ class FinancialStatement(BaseModel):
     """A financial statement (income/balance/cashflow) as a label -> per-period values table."""
 
     symbol: str = Field(description="Ticker symbol.")
-    statement: Literal["income", "balance", "cashflow"] = Field(description="Which statement.")
-    period: Literal["annual", "quarterly"] = Field(description="Reporting period granularity.")
+    statement: Statement = Field(description="Which statement.")
+    period: StatementPeriod = Field(description="Reporting period granularity.")
     period_ends: list[str] = Field(
         description="Period-end dates (ISO 8601), most recent first; values align to this order."
     )
@@ -246,3 +250,84 @@ class CompanyProfile(BaseModel):
         default_factory=list, description="Most recent dividends (newest last)."
     )
     splits: list[SplitEvent] = Field(default_factory=list, description="Stock split history.")
+
+
+class KeyMetrics(BaseModel):
+    """Valuation / profitability / leverage ratios as reported by Yahoo. Units vary by field."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    trailing_pe: float | None = Field(default=None, description="Trailing P/E ratio.")
+    forward_pe: float | None = Field(default=None, description="Forward P/E ratio.")
+    price_to_book: float | None = Field(default=None, description="Price/book ratio.")
+    price_to_sales: float | None = Field(default=None, description="Price/sales (TTM) ratio.")
+    peg_ratio: float | None = Field(default=None, description="P/E-to-growth ratio.")
+    enterprise_value: float | None = Field(
+        default=None, description="Enterprise value, in the reporting currency (absolute units)."
+    )
+    ev_to_ebitda: float | None = Field(default=None, description="Enterprise value / EBITDA ratio.")
+    ev_to_revenue: float | None = Field(
+        default=None, description="Enterprise value / revenue ratio."
+    )
+    return_on_equity: float | None = Field(
+        default=None, description="Return on equity, as a fraction (0.27 = 27%)."
+    )
+    return_on_assets: float | None = Field(
+        default=None, description="Return on assets, as a fraction (0.27 = 27%)."
+    )
+    gross_margins: float | None = Field(default=None, description="Gross margin, as a fraction.")
+    operating_margins: float | None = Field(
+        default=None, description="Operating margin, as a fraction."
+    )
+    profit_margins: float | None = Field(
+        default=None, description="Net profit margin, as a fraction."
+    )
+    ebitda_margins: float | None = Field(default=None, description="EBITDA margin, as a fraction.")
+    debt_to_equity: float | None = Field(
+        default=None, description="Debt-to-equity, as a PERCENT (79.5 = 79.5%)."
+    )
+    current_ratio: float | None = Field(default=None, description="Current ratio.")
+    quick_ratio: float | None = Field(default=None, description="Quick ratio.")
+    total_debt: float | None = Field(
+        default=None, description="Total debt, in the reporting currency (absolute units)."
+    )
+    total_cash: float | None = Field(
+        default=None, description="Total cash, in the reporting currency (absolute units)."
+    )
+    free_cashflow: float | None = Field(
+        default=None, description="Free cash flow, in the reporting currency (absolute units)."
+    )
+    ebitda: float | None = Field(
+        default=None, description="EBITDA, in the reporting currency (absolute units)."
+    )
+    trailing_eps: float | None = Field(default=None, description="Trailing EPS, per share.")
+    forward_eps: float | None = Field(default=None, description="Forward EPS, per share.")
+    revenue_per_share: float | None = Field(default=None, description="Revenue per share.")
+    book_value: float | None = Field(default=None, description="Book value per share.")
+
+
+class PerformanceStats(BaseModel):
+    """Return and risk statistics computed from daily closes over the requested window."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    period: str = Field(description="Look-back window requested, e.g. '1y'.")
+    bars: int = Field(description="Number of daily closes used.")
+    start_date: str = Field(description="First close date (ISO 8601).")
+    end_date: str = Field(description="Last close date (ISO 8601).")
+    total_return_percent: float = Field(
+        description="Total return over the window (e.g. 12.3 = 12.3%)."
+    )
+    annualized_return_percent: float = Field(
+        description="Annualized return (CAGR) at 252 trading days/year, percent."
+    )
+    annualized_volatility_percent: float = Field(
+        description="Annualized volatility of daily returns (252-day), percent."
+    )
+    max_drawdown_percent: float = Field(
+        description="Largest peak-to-trough decline, as a negative percent (e.g. -23.4 = -23.4%)."
+    )
+    sma_50: float | None = Field(
+        default=None, description="50-day simple moving average; null if < 50 bars."
+    )
+    sma_200: float | None = Field(
+        default=None, description="200-day simple moving average; null if < 200 bars."
+    )

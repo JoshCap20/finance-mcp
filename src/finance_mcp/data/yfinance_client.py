@@ -8,24 +8,31 @@ because we cannot enumerate every Yahoo failure mode.
 import math
 import time
 from collections.abc import Callable
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import yfinance as yf
 from yfinance.exceptions import YFException
 
+from finance_mcp.data import analytics
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
 from finance_mcp.data.models import (
     CompanyProfile,
     DividendEvent,
     FinancialStatement,
+    KeyMetrics,
+    PerformanceStats,
     PriceBar,
     PriceHistory,
     PriceSummary,
     Quote,
     SplitEvent,
+    Statement,
+    StatementPeriod,
 )
 
 DEFAULT_MAX_BARS = 260
+SMA_SHORT_WINDOW = 50
+SMA_LONG_WINDOW = 200
 
 _FINANCIALS_ATTR = {
     ("income", "annual"): "income_stmt",
@@ -123,7 +130,8 @@ class YFinanceClient:
             ),
         )
 
-    def _fetch_history(self, symbol: str, period: str, interval: str) -> PriceHistory:
+    def _fetch_all_bars(self, symbol: str, period: str, interval: str) -> list[PriceBar]:
+        """Fetch and parse the FULL (untruncated) OHLCV bars, dropping non-finite rows."""
         try:
             df = self._ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
         except Exception as exc:  # surface any yfinance failure verbatim
@@ -153,40 +161,73 @@ class YFinanceClient:
                 raise SymbolNotFound(
                     f"No price history for '{symbol}'. Check the symbol/period/interval."
                 )
-            start_close = all_bars[0].close
-            total_return = (
-                ((all_bars[-1].close / start_close - 1.0) * 100.0) if start_close else 0.0
-            )
-            summary = PriceSummary(
-                start_date=all_bars[0].date,
-                end_date=all_bars[-1].date,
-                start_close=start_close,
-                end_close=all_bars[-1].close,
-                total_return_percent=total_return,
-                period_high=max(b.high for b in all_bars),
-                period_low=min(b.low for b in all_bars),
-                bars=len(all_bars),
-            )
-            truncated = len(all_bars) > self._max_bars
-            bars = all_bars[-self._max_bars :] if truncated else all_bars
-            return PriceHistory(
-                symbol=symbol,
-                period=period,
-                interval=interval,
-                bars=bars,
-                summary=summary,
-                truncated=truncated,
-            )
+            return all_bars
         except SymbolNotFound:
             raise
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse history for '{symbol}': {exc}") from exc
 
+    def _fetch_history(self, symbol: str, period: str, interval: str) -> PriceHistory:
+        all_bars = self._fetch_all_bars(symbol, period, interval)
+        start_close = all_bars[0].close
+        total_return = ((all_bars[-1].close / start_close - 1.0) * 100.0) if start_close else 0.0
+        summary = PriceSummary(
+            start_date=all_bars[0].date,
+            end_date=all_bars[-1].date,
+            start_close=start_close,
+            end_close=all_bars[-1].close,
+            total_return_percent=total_return,
+            period_high=max(b.high for b in all_bars),
+            period_low=min(b.low for b in all_bars),
+            bars=len(all_bars),
+        )
+        truncated = len(all_bars) > self._max_bars
+        bars = all_bars[-self._max_bars :] if truncated else all_bars
+        return PriceHistory(
+            symbol=symbol,
+            period=period,
+            interval=interval,
+            bars=bars,
+            summary=summary,
+            truncated=truncated,
+        )
+
+    def analyze_performance(self, symbol: str, period: str) -> PerformanceStats:
+        return cast(
+            PerformanceStats,
+            self._cached(
+                ("performance", symbol, period),
+                self._history_ttl,
+                lambda: self._compute_performance(symbol, period),
+            ),
+        )
+
+    def _compute_performance(self, symbol: str, period: str) -> PerformanceStats:
+        bars = self._fetch_all_bars(symbol, period, "1d")
+        if len(bars) < 2:
+            raise DataUnavailable(
+                f"Not enough price history to compute performance for '{symbol}'."
+            )
+        closes = [b.close for b in bars]
+        return PerformanceStats(
+            symbol=symbol,
+            period=period,
+            bars=len(bars),
+            start_date=bars[0].date,
+            end_date=bars[-1].date,
+            total_return_percent=analytics.total_return(closes),
+            annualized_return_percent=analytics.annualized_return(closes),
+            annualized_volatility_percent=analytics.annualized_volatility(closes),
+            max_drawdown_percent=analytics.max_drawdown(closes),
+            sma_50=analytics.sma(closes, SMA_SHORT_WINDOW),
+            sma_200=analytics.sma(closes, SMA_LONG_WINDOW),
+        )
+
     def get_financials(
         self,
         symbol: str,
-        statement: Literal["income", "balance", "cashflow"],
-        period: Literal["annual", "quarterly"],
+        statement: Statement,
+        period: StatementPeriod,
         line_items: list[str] | None = None,
     ) -> FinancialStatement:
         full = cast(
@@ -205,8 +246,8 @@ class YFinanceClient:
     def _fetch_financials(
         self,
         symbol: str,
-        statement: Literal["income", "balance", "cashflow"],
-        period: Literal["annual", "quarterly"],
+        statement: Statement,
+        period: StatementPeriod,
     ) -> FinancialStatement:
         attr = _FINANCIALS_ATTR[(statement, period)]
         try:
@@ -217,7 +258,8 @@ class YFinanceClient:
             ) from exc
         if df is None or df.empty:
             raise SymbolNotFound(
-                f"No {statement} statement for '{symbol}'. Check the ticker symbol."
+                f"No {statement} statement available for '{symbol}'. It may be an ETF, index, or "
+                "other instrument without financial statements, or an invalid symbol."
             )
         try:
             period_ends = [col.date().isoformat() for col in df.columns]
@@ -281,6 +323,59 @@ class YFinanceClient:
             )
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse profile for '{symbol}': {exc}") from exc
+
+    def get_key_metrics(self, symbol: str) -> KeyMetrics:
+        return cast(
+            KeyMetrics,
+            self._cached(
+                ("metrics", symbol), self._fundamentals_ttl, lambda: self._fetch_metrics(symbol)
+            ),
+        )
+
+    def _fetch_metrics(self, symbol: str) -> KeyMetrics:
+        try:
+            info = self._ticker(symbol).info
+        except YFException as exc:
+            raise DataUnavailable(f"Failed to fetch metrics for '{symbol}': {exc}") from exc
+        except Exception as exc:  # raw leak for symbols with no data
+            raise SymbolNotFound(
+                f"No metrics data for '{symbol}'. The symbol may be invalid or delisted."
+            ) from exc
+        if not info or not (info.get("longName") or info.get("shortName")):
+            raise SymbolNotFound(
+                f"No metrics data for '{symbol}'. The symbol may be invalid or delisted."
+            )
+        try:
+            return KeyMetrics(
+                symbol=symbol,
+                trailing_pe=_opt(info.get("trailingPE")),
+                forward_pe=_opt(info.get("forwardPE")),
+                price_to_book=_opt(info.get("priceToBook")),
+                price_to_sales=_opt(info.get("priceToSalesTrailing12Months")),
+                peg_ratio=_opt(info.get("pegRatio")),
+                enterprise_value=_opt(info.get("enterpriseValue")),
+                ev_to_ebitda=_opt(info.get("enterpriseToEbitda")),
+                ev_to_revenue=_opt(info.get("enterpriseToRevenue")),
+                return_on_equity=_opt(info.get("returnOnEquity")),
+                return_on_assets=_opt(info.get("returnOnAssets")),
+                gross_margins=_opt(info.get("grossMargins")),
+                operating_margins=_opt(info.get("operatingMargins")),
+                profit_margins=_opt(info.get("profitMargins")),
+                ebitda_margins=_opt(info.get("ebitdaMargins")),
+                debt_to_equity=_opt(info.get("debtToEquity")),
+                current_ratio=_opt(info.get("currentRatio")),
+                quick_ratio=_opt(info.get("quickRatio")),
+                total_debt=_opt(info.get("totalDebt")),
+                total_cash=_opt(info.get("totalCash")),
+                free_cashflow=_opt(info.get("freeCashflow")),
+                ebitda=_opt(info.get("ebitda")),
+                trailing_eps=_opt(info.get("trailingEps")),
+                forward_eps=_opt(info.get("forwardEps")),
+                revenue_per_share=_opt(info.get("revenuePerShare")),
+                book_value=_opt(info.get("bookValue")),
+            )
+        except Exception as exc:  # surface any mapping failure verbatim
+            raise DataUnavailable(f"Failed to parse metrics for '{symbol}': {exc}") from exc
 
 
 def _dividend_events(series: Any, limit: int) -> list[DividendEvent]:

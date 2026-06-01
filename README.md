@@ -1,7 +1,7 @@
 # Finance MCP
 
-An MCP server of finance tools: a `yfinance` market-data wrapper plus deterministic
-financial calculators. (Computed analytics and analysis prompts are planned.)
+An MCP server of finance tools: a `yfinance` market-data wrapper, computed analytics,
+and deterministic financial calculators. (Analysis prompts are planned.)
 
 Immediate roadmap:
 
@@ -10,10 +10,9 @@ Immediate roadmap:
 - get_analyst_data (recommendations, price targets, estimates)
 - search_symbols (resolve a company name to a ticker)
 
-2. Computed analytics
+2. More computed analytics
 
-- get_key_metrics (P/E, EV/EBITDA, margins, ROE, FCF yield from financials+quote)
-- analyze_performance (return, volatility, max drawdown from price history)
+- compare_peers (rank a set of tickers across key metrics)
 
 3. analyze_stock + compare_stocks — user-invoked slash commands that orchestrate the existing 14 tools into a methodology
 4. Public free data requiring keys - add optional extensions for fed data for interest rates, etc.
@@ -27,6 +26,11 @@ Immediate roadmap:
 - `get_price_history` — OHLCV bars plus a computed summary for a ticker, by period and interval (long windows are truncated; the summary covers the full window).
 - `get_financials` — income statement, balance sheet, or cash flow (annual or quarterly) as line items by period; values in the company's reporting currency, with an optional line-item filter.
 - `get_company_profile` — sector, industry, market cap, P/E, beta, business summary, plus recent dividends and stock splits.
+
+**Analytics**
+
+- `get_key_metrics` — valuation/profitability/leverage ratios (P/E, EV/EBITDA, margins, ROE, debt/equity, FCF, EPS, …) as reported by Yahoo; units noted per field.
+- `analyze_performance` — total & annualized return, annualized volatility, max drawdown, and 50/200-day SMAs computed from the daily price series.
 
 **Time value & loans**
 
@@ -46,8 +50,8 @@ Immediate roadmap:
 - `bond_price` — price plus Macaulay/modified duration and convexity at a given yield (priced on a coupon date).
 - `bond_ytm` — yield to maturity from a bond's market price.
 
-The calculators are pure and deterministic; the market-data tools fetch live data
-(briefly cached) and surface source errors clearly. All tools return typed,
+The calculators are pure and deterministic; the market-data and analytics tools fetch
+live data (briefly cached) and surface source errors clearly. All tools return typed,
 structured results and report invalid inputs as clear errors.
 
 ## Run

@@ -6,11 +6,14 @@ import pandas as pd
 import pytest
 from yfinance.exceptions import YFException
 
+from finance_mcp.data import analytics
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
 from finance_mcp.data.models import (
     CompanyProfile,
     DividendEvent,
     FinancialStatement,
+    KeyMetrics,
+    PerformanceStats,
     PriceBar,
     PriceHistory,
     PriceSummary,
@@ -702,3 +705,245 @@ def test_get_company_profile_dividends_below_cap_returns_all() -> None:
     client = _profile_client(factory=fake_ticker_factory(info=FULL_INFO, dividends=div))
     p = client.get_company_profile("AAPL")
     assert [d.date for d in p.recent_dividends] == ["2023-02-01", "2023-05-01", "2023-08-01"]
+
+
+METRICS_INFO = {
+    "longName": "Apple Inc.",
+    "trailingPE": 37.73,
+    "forwardPE": 32.48,
+    "priceToBook": 42.98,
+    "priceToSalesTrailing12Months": 10.15,
+    "pegRatio": 2.72,
+    "enterpriseValue": 4599540350976,
+    "enterpriseToEbitda": 28.75,
+    "enterpriseToRevenue": 10.19,
+    "returnOnEquity": 1.41,
+    "returnOnAssets": 0.26,
+    "grossMargins": 0.478,
+    "operatingMargins": 0.322,
+    "profitMargins": 0.271,
+    "ebitdaMargins": 0.354,
+    "debtToEquity": 79.55,
+    "currentRatio": 1.07,
+    "quickRatio": 0.906,
+    "totalDebt": 84710998016,
+    "totalCash": 68507000832,
+    "freeCashflow": 101090746368,
+    "ebitda": 159975997440,
+    "trailingEps": 8.27,
+    "forwardEps": 9.61,
+    "revenuePerShare": 30.53,
+    "bookValue": 7.26,
+}
+
+
+def _metrics_client(**kw: Any) -> YFinanceClient:
+    factory = kw.pop("factory")
+    return YFinanceClient(
+        ticker_factory=factory,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+
+
+def test_get_key_metrics_maps_fields() -> None:
+    m = _metrics_client(factory=fake_ticker_factory(info=METRICS_INFO)).get_key_metrics("AAPL")
+    assert isinstance(m, KeyMetrics)
+    assert m.symbol == "AAPL"
+    assert m.trailing_pe == 37.73 and m.forward_pe == 32.48 and m.price_to_book == 42.98
+    assert m.price_to_sales == 10.15 and m.peg_ratio == 2.72
+    assert m.enterprise_value == 4599540350976 and m.ev_to_ebitda == 28.75
+    assert m.ev_to_revenue == 10.19
+    assert m.return_on_equity == 1.41 and m.return_on_assets == 0.26
+    assert m.gross_margins == 0.478 and m.operating_margins == 0.322
+    assert m.profit_margins == 0.271 and m.ebitda_margins == 0.354
+    assert m.debt_to_equity == 79.55 and m.current_ratio == 1.07 and m.quick_ratio == 0.906
+    assert m.total_debt == 84710998016 and m.total_cash == 68507000832
+    assert m.free_cashflow == 101090746368 and m.ebitda == 159975997440
+    assert m.trailing_eps == 8.27 and m.forward_eps == 9.61
+    assert m.revenue_per_share == 30.53 and m.book_value == 7.26
+
+
+def test_get_key_metrics_missing_and_nan_are_none() -> None:
+    info = {"longName": "X Corp", "trailingPE": float("nan")}
+    m = _metrics_client(factory=fake_ticker_factory(info=info)).get_key_metrics("X")
+    assert m.symbol == "X" and m.trailing_pe is None
+    assert m.ebitda is None and m.profit_margins is None
+
+
+def test_get_key_metrics_no_name_raises_symbol_not_found() -> None:
+    client = _metrics_client(factory=fake_ticker_factory(info={"trailingPegRatio": None}))
+    with pytest.raises(SymbolNotFound):
+        client.get_key_metrics("BAD")
+
+
+def test_get_key_metrics_typed_error_is_data_unavailable() -> None:
+    client = _metrics_client(factory=fake_ticker_factory(info_error=YFException("rate limited")))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_key_metrics("AAPL")
+    assert "rate limited" in str(exc.value)
+
+
+def test_get_key_metrics_raw_error_is_symbol_not_found() -> None:
+    client = _metrics_client(factory=fake_ticker_factory(info_error=KeyError("boom")))
+    with pytest.raises(SymbolNotFound):
+        client.get_key_metrics("AAPL")
+
+
+def test_get_key_metrics_mapping_failure_is_data_unavailable() -> None:
+    # A value that survives the name check but fails float() coercion in mapping.
+    info = {"longName": "Apple Inc.", "trailingPE": object()}
+    client = _metrics_client(factory=fake_ticker_factory(info=info))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_key_metrics("AAPL")
+    assert "Failed to parse metrics for 'AAPL'" in str(exc.value)
+
+
+def test_get_key_metrics_caches_within_ttl() -> None:
+    calls = {"n": 0}
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(info=METRICS_INFO)(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=clock,
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.get_key_metrics("AAPL")
+    client.get_key_metrics("AAPL")
+    assert calls["n"] == 1
+    clock.advance(3601.0)
+    client.get_key_metrics("AAPL")
+    assert calls["n"] == 2
+
+
+def _perf_client(**kw: Any) -> YFinanceClient:
+    factory = kw.pop("factory")
+    return YFinanceClient(
+        ticker_factory=factory,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+
+
+def test_analyze_performance_computes_stats() -> None:
+    closes = [100.0, 110.0, 99.0]
+    client = _perf_client(factory=fake_ticker_factory(history_df=make_history_df(closes)))
+    p = client.analyze_performance("AAPL", "1mo")
+    assert isinstance(p, PerformanceStats)
+    assert p.symbol == "AAPL" and p.period == "1mo" and p.bars == 3
+    assert p.total_return_percent == pytest.approx(analytics.total_return(closes))
+    assert p.annualized_volatility_percent == pytest.approx(analytics.annualized_volatility(closes))
+    assert p.max_drawdown_percent == pytest.approx(analytics.max_drawdown(closes))
+    assert p.sma_50 is None and p.sma_200 is None  # < 50 bars
+    assert p.start_date == "2024-01-01" and p.end_date == "2024-01-03"
+
+
+def test_analyze_performance_sma_when_enough_bars() -> None:
+    closes = [100.0 + i for i in range(60)]  # 60 daily bars
+    client = _perf_client(factory=fake_ticker_factory(history_df=make_history_df(closes)))
+    p = client.analyze_performance("AAPL", "3mo")
+    assert p.sma_50 == pytest.approx(analytics.sma(closes, 50))
+    assert p.sma_200 is None  # still < 200
+
+
+def test_analyze_performance_too_few_bars_raises() -> None:
+    client = _perf_client(factory=fake_ticker_factory(history_df=make_history_df([100.0])))
+    with pytest.raises(DataUnavailable):
+        client.analyze_performance("AAPL", "1d")
+
+
+def test_analyze_performance_invalid_symbol_raises() -> None:
+    client = _perf_client(factory=fake_ticker_factory(history_df=pd.DataFrame()))
+    with pytest.raises(SymbolNotFound):
+        client.analyze_performance("BAD", "1y")
+
+
+def test_analyze_performance_caches_within_ttl() -> None:
+    calls = {"n": 0}
+    df = make_history_df([100.0, 110.0, 99.0])
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(history_df=df)(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=clock,
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.analyze_performance("AAPL", "1mo")
+    client.analyze_performance("AAPL", "1mo")
+    assert calls["n"] == 1
+    clock.advance(301.0)
+    client.analyze_performance("AAPL", "1mo")
+    assert calls["n"] == 2
+
+
+def test_analyze_performance_cache_keys_on_period() -> None:
+    calls = {"n": 0}
+    df = make_history_df([100.0, 110.0, 99.0])
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(history_df=df)(symbol)
+
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.analyze_performance("AAPL", "1mo")
+    client.analyze_performance("AAPL", "1mo")
+    assert calls["n"] == 1
+    client.analyze_performance("AAPL", "1y")  # distinct period -> distinct key
+    assert calls["n"] == 2
+
+
+def test_analyze_performance_period_propagates() -> None:
+    df = make_history_df([100.0, 110.0, 99.0])
+    p = _perf_client(factory=fake_ticker_factory(history_df=df)).analyze_performance("AAPL", "5y")
+    assert p.period == "5y"
+
+
+def test_analyze_performance_sma_200_populated() -> None:
+    closes = [100.0 + i for i in range(250)]
+    p = _perf_client(
+        factory=fake_ticker_factory(history_df=make_history_df(closes))
+    ).analyze_performance("AAPL", "1y")
+    assert p.sma_200 == pytest.approx(analytics.sma(closes, 200)) and p.sma_200 is not None
+    assert p.sma_50 == pytest.approx(analytics.sma(closes, 50))
+
+
+def test_profile_and_metrics_caches_do_not_collide() -> None:
+    calls = {"n": 0}
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(info=METRICS_INFO)(symbol)
+
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    prof = client.get_company_profile("AAPL")
+    metr = client.get_key_metrics("AAPL")
+    assert calls["n"] == 2  # distinct cache keys -> two fetches
+    assert prof.symbol == "AAPL" and metr.symbol == "AAPL"

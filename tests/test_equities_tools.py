@@ -93,7 +93,6 @@ async def test_fundamentals_tools_registered() -> None:
     async with Client(server) as client:
         names = {t.name for t in await client.list_tools()}
         assert {"get_financials", "get_company_profile"} <= names
-        assert len(names) == 14  # 12 prior + these 2
 
 
 async def test_get_financials_tool() -> None:
