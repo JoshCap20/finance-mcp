@@ -890,3 +890,60 @@ def test_analyze_performance_caches_within_ttl() -> None:
     clock.advance(301.0)
     client.analyze_performance("AAPL", "1mo")
     assert calls["n"] == 2
+
+
+def test_analyze_performance_cache_keys_on_period() -> None:
+    calls = {"n": 0}
+    df = make_history_df([100.0, 110.0, 99.0])
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(history_df=df)(symbol)
+
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.analyze_performance("AAPL", "1mo")
+    client.analyze_performance("AAPL", "1mo")
+    assert calls["n"] == 1
+    client.analyze_performance("AAPL", "1y")  # distinct period -> distinct key
+    assert calls["n"] == 2
+
+
+def test_analyze_performance_period_propagates() -> None:
+    df = make_history_df([100.0, 110.0, 99.0])
+    p = _perf_client(factory=fake_ticker_factory(history_df=df)).analyze_performance("AAPL", "5y")
+    assert p.period == "5y"
+
+
+def test_analyze_performance_sma_200_populated() -> None:
+    closes = [100.0 + i for i in range(250)]
+    p = _perf_client(
+        factory=fake_ticker_factory(history_df=make_history_df(closes))
+    ).analyze_performance("AAPL", "1y")
+    assert p.sma_200 == pytest.approx(analytics.sma(closes, 200)) and p.sma_200 is not None
+    assert p.sma_50 == pytest.approx(analytics.sma(closes, 50))
+
+
+def test_profile_and_metrics_caches_do_not_collide() -> None:
+    calls = {"n": 0}
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(info=METRICS_INFO)(symbol)
+
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    prof = client.get_company_profile("AAPL")
+    metr = client.get_key_metrics("AAPL")
+    assert calls["n"] == 2  # distinct cache keys -> two fetches
+    assert prof.symbol == "AAPL" and metr.symbol == "AAPL"

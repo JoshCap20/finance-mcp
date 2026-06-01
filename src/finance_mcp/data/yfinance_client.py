@@ -258,7 +258,8 @@ class YFinanceClient:
             ) from exc
         if df is None or df.empty:
             raise SymbolNotFound(
-                f"No {statement} statement for '{symbol}'. Check the ticker symbol."
+                f"No {statement} statement available for '{symbol}'. It may be an ETF, index, or "
+                "other instrument without financial statements, or an invalid symbol."
             )
         try:
             period_ends = [col.date().isoformat() for col in df.columns]

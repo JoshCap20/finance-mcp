@@ -1,5 +1,8 @@
 """Unit tests for the pure analytics math (no MCP/network)."""
 
+import math
+import statistics
+
 import pytest
 
 from finance_mcp.data.analytics import (
@@ -69,3 +72,25 @@ def test_max_drawdown_uses_running_peak() -> None:
     # Peak 120 (bar 1), trough 90 (bar 2), recovers to 130 (last bar):
     # running-peak gives -25% (120->90); a naive first-to-min would wrongly give -10%.
     assert max_drawdown([100.0, 120.0, 90.0, 130.0]) == pytest.approx(-25.0)
+
+
+def test_annualized_return_declining() -> None:
+    assert annualized_return([100.0, 90.0], periods_per_year=252.0) == pytest.approx(
+        (0.9**252 - 1) * 100
+    )
+
+
+def test_annualized_return_nontrivial_exponent() -> None:
+    # 2 closes, ppy=2 -> exponent 2/(2-1)=2 -> (1.21)**2 - 1 = 0.4641 -> 46.41%
+    assert annualized_return([100.0, 121.0], periods_per_year=2.0) == pytest.approx(46.41, rel=1e-4)
+
+
+def test_annualized_volatility_multiple_returns() -> None:
+    closes = [100.0, 110.0, 99.0, 108.9]
+    rets = [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))]
+    expected = statistics.stdev(rets) * math.sqrt(252.0) * 100
+    assert annualized_volatility(closes) == pytest.approx(expected)
+
+
+def test_sma_at_window_boundary() -> None:
+    assert sma([100.0, 110.0, 99.0], 3) == pytest.approx(103.0)  # mean of all three, not None
