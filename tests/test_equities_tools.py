@@ -1,8 +1,10 @@
+import pandas as pd
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from yfinance.exceptions import YFException
 
+from finance_mcp.data.errors import DataUnavailable
 from finance_mcp.server import create_server
 from tests.conftest import (
     fake_ticker_factory,
@@ -140,8 +142,6 @@ async def test_get_company_profile_tool() -> None:
 
 
 async def test_get_financials_tool_invalid_errors() -> None:
-    import pandas as pd
-
     server = create_server(
         yf_client=make_client(
             factory=fake_ticker_factory(financials={"income_stmt": pd.DataFrame()})
@@ -155,8 +155,6 @@ async def test_get_financials_tool_invalid_errors() -> None:
 
 
 async def test_get_company_profile_tool_invalid_errors() -> None:
-    from finance_mcp.data.errors import DataUnavailable
-
     def _factory(_symbol: str) -> object:
         raise DataUnavailable("no profile")
 

@@ -15,6 +15,8 @@ Immediate roadmap:
 
 - `get_quote` — current price snapshot for one or more tickers: price, change, day/52-week ranges, market cap (batched; cached briefly).
 - `get_price_history` — OHLCV bars plus a computed summary for a ticker, by period and interval (long windows are truncated; the summary covers the full window).
+- `get_financials` — income statement, balance sheet, or cash flow (annual or quarterly) as line items by period; values in the company's reporting currency, with an optional line-item filter.
+- `get_company_profile` — sector, industry, market cap, P/E, beta, business summary, plus recent dividends and stock splits.
 
 **Time value & loans**
 

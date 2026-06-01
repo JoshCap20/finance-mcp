@@ -2,6 +2,7 @@ import math
 from types import SimpleNamespace
 from typing import Any, Literal
 
+import pandas as pd
 import pytest
 from yfinance.exceptions import YFException
 
@@ -378,8 +379,6 @@ def test_get_financials_quarterly_attr() -> None:
 
 
 def test_get_financials_empty_raises_symbol_not_found() -> None:
-    import pandas as pd
-
     client = _fin_client(factory=fake_ticker_factory(financials={"income_stmt": pd.DataFrame()}))
     with pytest.raises(SymbolNotFound):
         client.get_financials("BAD", "income", "annual")
@@ -393,8 +392,6 @@ def test_get_financials_fetch_error_is_data_unavailable() -> None:
 
 
 def test_get_financials_parse_error_is_data_unavailable() -> None:
-    import pandas as pd
-
     # Non-datetime columns make `col.date()` raise inside the parse block.
     df = pd.DataFrame({"a": [1.0], "b": [2.0]}, index=["Total Revenue"])
     client = _fin_client(factory=fake_ticker_factory(financials={"income_stmt": df}))
@@ -504,8 +501,6 @@ def test_get_company_profile_no_name_raises_symbol_not_found() -> None:
 
 
 def test_get_company_profile_typed_error_is_data_unavailable() -> None:
-    from yfinance.exceptions import YFException
-
     client = _profile_client(factory=fake_ticker_factory(info_error=YFException("rate limited")))
     with pytest.raises(DataUnavailable) as exc:
         client.get_company_profile("AAPL")
@@ -528,8 +523,6 @@ def test_get_company_profile_skips_non_finite_dividends_and_splits() -> None:
 
 
 def test_get_company_profile_parse_error_is_data_unavailable() -> None:
-    import pandas as pd
-
     # A non-datetime index makes `ts.date()` raise inside the parse block.
     bad_div = pd.Series([0.25], index=["not-a-date"], dtype=float)
     client = _profile_client(factory=fake_ticker_factory(info=FULL_INFO, dividends=bad_div))
