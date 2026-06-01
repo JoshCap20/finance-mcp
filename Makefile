@@ -25,7 +25,7 @@ build:
 	uv build
 
 run:
-	uv run finance-mcp
+	uv run mcp-finance
 
 clean:
 	rm -rf .coverage .mypy_cache .pytest_cache .ruff_cache htmlcov dist build

@@ -1,5 +1,5 @@
 [project]
-name = "finance-mcp"
+name = "mcp-finance"
 version = "0.1.0"
 description = "An MCP server providing finance tools: a yfinance wrapper, computed analytics, and financial calculators."
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-finance-mcp = "finance_mcp.server:main"
+mcp-finance = "finance_mcp.server:main"
 
 [dependency-groups]
 dev = [
