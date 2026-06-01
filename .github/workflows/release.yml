@@ -1,0 +1,27 @@
+name: Publish to PyPI
+
+# Publishes to PyPI when a GitHub Release is published.
+# Auth is via PyPI Trusted Publishing (OIDC) — no API token/secret is stored.
+# The version uploaded is `project.version` in pyproject.toml, NOT the tag —
+# bump it before cutting the release (PyPI versions are immutable).
+on:
+  release:
+    types: [published]
+
+jobs:
+  pypi-publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Publish to PyPI (trusted publishing)
+        run: uv publish
