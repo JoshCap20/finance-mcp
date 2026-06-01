@@ -17,7 +17,12 @@ from finance_mcp.data.models import (
     SplitEvent,
 )
 from finance_mcp.data.yfinance_client import YFinanceClient
-from tests.conftest import FakeClock, fake_ticker_factory, make_history_df
+from tests.conftest import (
+    FakeClock,
+    fake_ticker_factory,
+    make_financials_df,
+    make_history_df,
+)
 
 
 def test_models_and_errors_exist() -> None:
@@ -327,4 +332,95 @@ def test_get_quote_distinct_symbols_cached_independently() -> None:
     )
     results = client.get_quote(["AAPL", "MSFT"])
     assert [r.symbol for r in results] == ["AAPL", "MSFT"]
+    assert calls["n"] == 2
+
+
+INCOME = {  # rows: label -> [most-recent, prior]
+    "Total Revenue": [400.0, 380.0],
+    "Net Income": [100.0, float("nan")],
+}
+
+
+def _fin_client(**kw: Any) -> YFinanceClient:
+    factory = kw.pop("factory")
+    return YFinanceClient(
+        ticker_factory=factory,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+
+
+def test_get_financials_parses_periods_and_line_items() -> None:
+    df = make_financials_df(INCOME, ["2024-09-30", "2023-09-30"])
+    client = _fin_client(factory=fake_ticker_factory(financials={"income_stmt": df}))
+    fs = client.get_financials("AAPL", "income", "annual")
+    assert fs.symbol == "AAPL" and fs.statement == "income" and fs.period == "annual"
+    assert fs.period_ends == ["2024-09-30", "2023-09-30"]
+    assert fs.line_items["Total Revenue"] == [400.0, 380.0]
+    assert fs.line_items["Net Income"] == [100.0, None]  # NaN -> None
+
+
+def test_get_financials_line_items_filter() -> None:
+    df = make_financials_df(INCOME, ["2024-09-30", "2023-09-30"])
+    client = _fin_client(factory=fake_ticker_factory(financials={"income_stmt": df}))
+    fs = client.get_financials("AAPL", "income", "annual", line_items=["Total Revenue", "Nope"])
+    assert list(fs.line_items.keys()) == ["Total Revenue"]  # only matching labels, "Nope" dropped
+
+
+def test_get_financials_quarterly_attr() -> None:
+    df = make_financials_df({"Total Revenue": [100.0]}, ["2025-03-31"])
+    client = _fin_client(factory=fake_ticker_factory(financials={"quarterly_balance_sheet": df}))
+    fs = client.get_financials("AAPL", "balance", "quarterly")
+    assert fs.period_ends == ["2025-03-31"]
+
+
+def test_get_financials_empty_raises_symbol_not_found() -> None:
+    import pandas as pd
+
+    client = _fin_client(factory=fake_ticker_factory(financials={"income_stmt": pd.DataFrame()}))
+    with pytest.raises(SymbolNotFound):
+        client.get_financials("BAD", "income", "annual")
+
+
+def test_get_financials_fetch_error_is_data_unavailable() -> None:
+    client = _fin_client(factory=fake_ticker_factory(financials_error=RuntimeError("yahoo down")))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_financials("AAPL", "income", "annual")
+    assert "yahoo down" in str(exc.value)
+
+
+def test_get_financials_parse_error_is_data_unavailable() -> None:
+    import pandas as pd
+
+    # Non-datetime columns make `col.date()` raise inside the parse block.
+    df = pd.DataFrame({"a": [1.0], "b": [2.0]}, index=["Total Revenue"])
+    client = _fin_client(factory=fake_ticker_factory(financials={"income_stmt": df}))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_financials("AAPL", "income", "annual")
+    assert "AAPL" in str(exc.value)
+
+
+def test_get_financials_cached_within_ttl() -> None:
+    calls = {"n": 0}
+    df = make_financials_df(INCOME, ["2024-09-30", "2023-09-30"])
+
+    def counting(symbol: str) -> Any:
+        calls["n"] += 1
+        return fake_ticker_factory(financials={"income_stmt": df})(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=clock,
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.get_financials("AAPL", "income", "annual")
+    client.get_financials("AAPL", "income", "annual")
+    assert calls["n"] == 1
+    clock.advance(3601.0)
+    client.get_financials("AAPL", "income", "annual")
     assert calls["n"] == 2

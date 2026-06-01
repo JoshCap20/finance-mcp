@@ -8,15 +8,30 @@ because we cannot enumerate every Yahoo failure mode.
 import math
 import time
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import yfinance as yf
 from yfinance.exceptions import YFException
 
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
-from finance_mcp.data.models import PriceBar, PriceHistory, PriceSummary, Quote
+from finance_mcp.data.models import (
+    FinancialStatement,
+    PriceBar,
+    PriceHistory,
+    PriceSummary,
+    Quote,
+)
 
 DEFAULT_MAX_BARS = 260
+
+_FINANCIALS_ATTR = {
+    ("income", "annual"): "income_stmt",
+    ("income", "quarterly"): "quarterly_income_stmt",
+    ("balance", "annual"): "balance_sheet",
+    ("balance", "quarterly"): "quarterly_balance_sheet",
+    ("cashflow", "annual"): "cashflow",
+    ("cashflow", "quarterly"): "quarterly_cashflow",
+}
 
 
 class YFinanceClient:
@@ -163,6 +178,60 @@ class YFinanceClient:
             raise
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse history for '{symbol}': {exc}") from exc
+
+    def get_financials(
+        self,
+        symbol: str,
+        statement: Literal["income", "balance", "cashflow"],
+        period: Literal["annual", "quarterly"],
+        line_items: list[str] | None = None,
+    ) -> FinancialStatement:
+        full = cast(
+            FinancialStatement,
+            self._cached(
+                ("financials", symbol, statement, period),
+                self._fundamentals_ttl,
+                lambda: self._fetch_financials(symbol, statement, period),
+            ),
+        )
+        if line_items is None:
+            return full
+        wanted = {li: full.line_items[li] for li in line_items if li in full.line_items}
+        return full.model_copy(update={"line_items": wanted})
+
+    def _fetch_financials(
+        self,
+        symbol: str,
+        statement: Literal["income", "balance", "cashflow"],
+        period: Literal["annual", "quarterly"],
+    ) -> FinancialStatement:
+        attr = _FINANCIALS_ATTR[(statement, period)]
+        try:
+            df = getattr(self._ticker(symbol), attr)
+        except Exception as exc:  # surface any yfinance failure verbatim
+            raise DataUnavailable(
+                f"Failed to fetch {statement} statement for '{symbol}': {exc}"
+            ) from exc
+        if df is None or df.empty:
+            raise SymbolNotFound(
+                f"No {statement} statement for '{symbol}'. Check the ticker symbol."
+            )
+        try:
+            period_ends = [col.date().isoformat() for col in df.columns]
+            line_items: dict[str, list[float | None]] = {
+                str(idx): [_opt(v) for v in row] for idx, row in df.iterrows()
+            }
+            return FinancialStatement(
+                symbol=symbol,
+                statement=statement,
+                period=period,
+                period_ends=period_ends,
+                line_items=line_items,
+            )
+        except Exception as exc:  # surface any parsing failure verbatim
+            raise DataUnavailable(
+                f"Failed to parse {statement} statement for '{symbol}': {exc}"
+            ) from exc
 
 
 def _opt(value: Any) -> float | None:
