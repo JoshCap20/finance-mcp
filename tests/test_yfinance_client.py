@@ -22,7 +22,7 @@ from finance_mcp.data.models import (
     SplitEvent,
     SymbolSearchResult,
 )
-from finance_mcp.data.yfinance_client import YFinanceClient
+from finance_mcp.data.yfinance_client import YFinanceClient, _recommendation_trend
 from tests.conftest import (
     FakeClock,
     fake_search_factory,
@@ -1066,6 +1066,11 @@ def test_get_analyst_data_coverage_via_targets_only_empty_trend() -> None:
     a = client.get_analyst_data("AAPL")
     assert a.target_mean_price == 220.0
     assert a.recommendation_trend == []  # empty recommendations frame
+
+
+def test_recommendation_trend_none_df_returns_empty() -> None:
+    # yfinance can return None for recommendations; the helper must tolerate it.
+    assert _recommendation_trend(None) == []
 
 
 def test_get_analyst_data_parse_error_is_data_unavailable() -> None:

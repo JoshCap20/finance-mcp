@@ -453,8 +453,6 @@ class YFinanceClient:
         try:
             result = self._search(query, max_results=max_results, news_count=0, lists_count=0)
             quotes = result.quotes
-        except YFException as exc:
-            raise DataUnavailable(f"Search failed for '{query}': {exc}") from exc
         except Exception as exc:  # a failed search is a data issue, not a missing symbol
             raise DataUnavailable(f"Search failed for '{query}': {exc}") from exc
         if not quotes:
@@ -473,7 +471,7 @@ def _recommendation_trend(df: Any) -> list[RecommendationPeriod]:
     for row in df.to_dict("records"):
         periods.append(
             RecommendationPeriod(
-                period=str(row["period"]),
+                period=str(row.get("period", "")),
                 strong_buy=_opt_int(row.get("strongBuy")) or 0,
                 buy=_opt_int(row.get("buy")) or 0,
                 hold=_opt_int(row.get("hold")) or 0,
