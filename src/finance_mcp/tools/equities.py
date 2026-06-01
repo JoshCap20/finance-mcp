@@ -75,7 +75,8 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
     ) -> FinancialStatement:
         """Income statement, balance sheet, or cash flow.
 
-        Returns line items by period, most recent first.
+        Returns line items by period (most recent first); values are in the company's reporting
+        currency in absolute units (e.g. 416161000000 = 416.161 billion), null where not reported.
         """
         try:
             return await asyncio.to_thread(
@@ -90,7 +91,8 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
     ) -> CompanyProfile:
         """Company profile and key stats.
 
-        Includes sector, industry, market cap, and P/E, with recent dividends and splits.
+        Includes sector, industry, market cap and P/E, with recent dividends and splits.
+        Note: dividend_yield is a percent (e.g. 5.92 means 5.92%).
         """
         try:
             return await asyncio.to_thread(client.get_company_profile, ticker)

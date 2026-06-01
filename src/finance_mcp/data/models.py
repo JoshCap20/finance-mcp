@@ -118,30 +118,36 @@ class Quote(BaseModel):
     """A current price snapshot for one ticker."""
 
     symbol: str = Field(description="Ticker symbol.")
-    currency: str | None = Field(default=None, description="Quote currency, e.g. USD.")
-    price: float = Field(description="Latest price.")
-    previous_close: float | None = Field(default=None, description="Previous close.")
-    change: float | None = Field(default=None, description="Price change vs previous close.")
-    change_percent: float | None = Field(
-        default=None, description="Percent change vs previous close."
+    currency: str | None = Field(default=None, description="Quote currency (ISO 4217, e.g. 'USD').")
+    price: float = Field(description="Latest price, in quote currency.")
+    previous_close: float | None = Field(
+        default=None, description="Previous session close, in quote currency."
     )
-    day_high: float | None = Field(default=None, description="Intraday high.")
-    day_low: float | None = Field(default=None, description="Intraday low.")
-    year_high: float | None = Field(default=None, description="52-week high.")
-    year_low: float | None = Field(default=None, description="52-week low.")
-    market_cap: float | None = Field(default=None, description="Market capitalization.")
-    volume: float | None = Field(default=None, description="Latest/last volume.")
+    change: float | None = Field(
+        default=None, description="Price change vs previous close, in quote currency."
+    )
+    change_percent: float | None = Field(
+        default=None, description="Percent change vs previous close (e.g. 1.5 means 1.5%)."
+    )
+    day_high: float | None = Field(default=None, description="Intraday high, in quote currency.")
+    day_low: float | None = Field(default=None, description="Intraday low, in quote currency.")
+    year_high: float | None = Field(default=None, description="52-week high, in quote currency.")
+    year_low: float | None = Field(default=None, description="52-week low, in quote currency.")
+    market_cap: float | None = Field(
+        default=None, description="Market capitalization in quote currency (absolute units)."
+    )
+    volume: float | None = Field(default=None, description="Last trade volume, in shares.")
 
 
 class PriceBar(BaseModel):
-    """One OHLCV bar."""
+    """One OHLCV bar. Prices are auto-adjusted for splits and dividends."""
 
     date: str = Field(description="Bar date (ISO 8601).")
-    open: float = Field(description="Open price.")
-    high: float = Field(description="High price.")
-    low: float = Field(description="Low price.")
-    close: float = Field(description="Close price.")
-    volume: float = Field(description="Volume.")
+    open: float = Field(description="Adjusted open, in quote currency.")
+    high: float = Field(description="Adjusted high, in quote currency.")
+    low: float = Field(description="Adjusted low, in quote currency.")
+    close: float = Field(description="Adjusted close, in quote currency.")
+    volume: float = Field(description="Volume, in shares.")
 
 
 class PriceSummary(BaseModel):
@@ -149,11 +155,13 @@ class PriceSummary(BaseModel):
 
     start_date: str = Field(description="First bar date.")
     end_date: str = Field(description="Last bar date.")
-    start_close: float = Field(description="Close of the first bar.")
-    end_close: float = Field(description="Close of the last bar.")
-    total_return_percent: float = Field(description="Percent change from first to last close.")
-    period_high: float = Field(description="Highest high over the window.")
-    period_low: float = Field(description="Lowest low over the window.")
+    start_close: float = Field(description="Adjusted close of the first bar, in quote currency.")
+    end_close: float = Field(description="Adjusted close of the last bar, in quote currency.")
+    total_return_percent: float = Field(
+        description="Percent change from first to last adjusted close (e.g. 5.0 means 5%)."
+    )
+    period_high: float = Field(description="Highest high over the window, in quote currency.")
+    period_low: float = Field(description="Lowest low over the window, in quote currency.")
     bars: int = Field(description="Number of bars in the full window.")
 
 
@@ -180,7 +188,8 @@ class FinancialStatement(BaseModel):
         description="Period-end dates (ISO 8601), most recent first; values align to this order."
     )
     line_items: dict[str, list[float | None]] = Field(
-        description="Line item label -> values aligned to period_ends (null where not reported)."
+        description="Line item label -> values aligned to period_ends, in the company's reporting "
+        "currency in absolute units (e.g. 416161000000 = 416.161B); null if not reported."
     )
 
 
@@ -188,14 +197,16 @@ class DividendEvent(BaseModel):
     """A single cash dividend."""
 
     date: str = Field(description="Ex-dividend date (ISO 8601).")
-    amount: float = Field(description="Dividend amount per share.")
+    amount: float = Field(description="Cash dividend per share, in the trading currency.")
 
 
 class SplitEvent(BaseModel):
     """A single stock split."""
 
     date: str = Field(description="Split date (ISO 8601).")
-    ratio: float = Field(description="Split ratio (e.g. 4.0 = 4-for-1).")
+    ratio: float = Field(
+        description="Shares after the split per share before (e.g. 4.0 = a 4-for-1 split)."
+    )
 
 
 class CompanyProfile(BaseModel):
@@ -207,14 +218,30 @@ class CompanyProfile(BaseModel):
     industry: str | None = Field(default=None, description="Industry.")
     country: str | None = Field(default=None, description="Country.")
     website: str | None = Field(default=None, description="Website URL.")
-    employees: int | None = Field(default=None, description="Full-time employees.")
-    summary: str | None = Field(default=None, description="Business summary.")
-    currency: str | None = Field(default=None, description="Reporting/quote currency.")
-    market_cap: float | None = Field(default=None, description="Market capitalization.")
-    trailing_pe: float | None = Field(default=None, description="Trailing P/E ratio.")
-    forward_pe: float | None = Field(default=None, description="Forward P/E ratio.")
-    dividend_yield: float | None = Field(default=None, description="Dividend yield.")
-    beta: float | None = Field(default=None, description="Beta vs the market.")
+    employees: int | None = Field(default=None, description="Number of full-time employees.")
+    summary: str | None = Field(default=None, description="Business description (free text).")
+    currency: str | None = Field(
+        default=None,
+        description="Quote currency (ISO 4217, e.g. 'USD'). Financial statements may be reported "
+        "in a different currency.",
+    )
+    market_cap: float | None = Field(
+        default=None, description="Market capitalization in quote currency (absolute units)."
+    )
+    trailing_pe: float | None = Field(
+        default=None, description="Trailing twelve-month price/earnings ratio."
+    )
+    forward_pe: float | None = Field(
+        default=None, description="Forward price/earnings ratio (next-year estimate)."
+    )
+    dividend_yield: float | None = Field(
+        default=None,
+        description="Trailing dividend yield as a PERCENT, as reported by Yahoo "
+        "(e.g. 5.92 means 5.92%, not 0.0592).",
+    )
+    beta: float | None = Field(
+        default=None, description="Beta vs the market over ~5 years (1.0 = moves with the market)."
+    )
     recent_dividends: list[DividendEvent] = Field(
         default_factory=list, description="Most recent dividends (newest last)."
     )
