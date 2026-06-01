@@ -15,11 +15,14 @@ from yfinance.exceptions import YFException
 
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
 from finance_mcp.data.models import (
+    CompanyProfile,
+    DividendEvent,
     FinancialStatement,
     PriceBar,
     PriceHistory,
     PriceSummary,
     Quote,
+    SplitEvent,
 )
 
 DEFAULT_MAX_BARS = 260
@@ -232,6 +235,74 @@ class YFinanceClient:
             raise DataUnavailable(
                 f"Failed to parse {statement} statement for '{symbol}': {exc}"
             ) from exc
+
+    def get_company_profile(self, symbol: str) -> CompanyProfile:
+        return cast(
+            CompanyProfile,
+            self._cached(
+                ("profile", symbol), self._fundamentals_ttl, lambda: self._fetch_profile(symbol)
+            ),
+        )
+
+    def _fetch_profile(self, symbol: str) -> CompanyProfile:
+        try:
+            ticker = self._ticker(symbol)
+            info = ticker.info
+            dividends = ticker.dividends
+            splits = ticker.splits
+        except YFException as exc:
+            raise DataUnavailable(f"Failed to fetch profile for '{symbol}': {exc}") from exc
+        except Exception as exc:  # fast_info-style raw leak for symbols with no data
+            raise SymbolNotFound(
+                f"No profile data for '{symbol}'. The symbol may be invalid or delisted."
+            ) from exc
+        if not info or not (info.get("longName") or info.get("shortName")):
+            raise SymbolNotFound(
+                f"No profile data for '{symbol}'. The symbol may be invalid or delisted."
+            )
+        try:
+            return CompanyProfile(
+                symbol=symbol,
+                name=info.get("longName") or info.get("shortName"),
+                sector=info.get("sector"),
+                industry=info.get("industry"),
+                country=info.get("country"),
+                website=info.get("website"),
+                employees=info.get("fullTimeEmployees"),
+                summary=info.get("longBusinessSummary"),
+                currency=info.get("currency"),
+                market_cap=_opt(info.get("marketCap")),
+                trailing_pe=_opt(info.get("trailingPE")),
+                forward_pe=_opt(info.get("forwardPE")),
+                dividend_yield=_opt(info.get("dividendYield")),
+                beta=_opt(info.get("beta")),
+                recent_dividends=_dividend_events(dividends, limit=8),
+                splits=_split_events(splits),
+            )
+        except Exception as exc:  # surface any parsing failure verbatim
+            raise DataUnavailable(f"Failed to parse profile for '{symbol}': {exc}") from exc
+
+
+def _dividend_events(series: Any, limit: int) -> list[DividendEvent]:
+    if series is None or len(series) == 0:
+        return []
+    events: list[DividendEvent] = []
+    for ts, value in series.tail(limit).items():
+        amount = _opt(value)
+        if amount is not None:
+            events.append(DividendEvent(date=ts.date().isoformat(), amount=amount))
+    return events
+
+
+def _split_events(series: Any) -> list[SplitEvent]:
+    if series is None or len(series) == 0:
+        return []
+    events: list[SplitEvent] = []
+    for ts, value in series.items():
+        ratio = _opt(value)
+        if ratio is not None:
+            events.append(SplitEvent(date=ts.date().isoformat(), ratio=ratio))
+    return events
 
 
 def _opt(value: Any) -> float | None:
