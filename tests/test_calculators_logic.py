@@ -4,6 +4,8 @@ import math
 import pytest
 
 from finance_mcp.data.calculators import (
+    _bisect_bracket,
+    _find_all_roots,
     bond_price,
     bond_ytm,
     convert_rate,
@@ -516,3 +518,97 @@ def test_mirr_no_negative_raises() -> None:
 def test_mirr_invalid_rate_raises() -> None:
     with pytest.raises(InvalidInput):
         mirr([-100.0, 200.0], finance_rate=-1.0, reinvest_rate=0.1)
+
+
+# --- guard / defensive-branch coverage (option b) ---
+
+
+def test_rate_solve_large_nper_no_overflow() -> None:
+    # Regression: solving a 360-period rate must not overflow (1+10)**360 used to raise
+    # OverflowError; searching from high=1.0 keeps it finite. 200k @ 1199.101/mo -> 0.5%/mo.
+    result = time_value_of_money(solve_for="rate", pv=200000.0, fv=0.0, pmt=-1199.101, nper=360.0)
+    assert result.solved_value == pytest.approx(0.005, rel=1e-3)
+
+
+def test_rate_no_root_small_nper_raises() -> None:
+    # All-outflow, fv=0: f(r) never crosses zero; expansion exhausts -> InvalidInput.
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="rate", pv=-100.0, fv=0.0, pmt=-100.0, nper=2.0)
+
+
+def test_rate_no_root_overflow_in_expansion_raises() -> None:
+    # No root, large nper: expansion overflows mid-loop -> treated as no bracket.
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="rate", pv=-100.0, fv=0.0, pmt=-100.0, nper=200.0)
+
+
+def test_rate_initial_overflow_raises() -> None:
+    # nper so large that f(high) overflows on the first evaluation -> InvalidInput, not raw.
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="rate", pv=-100.0, fv=0.0, pmt=-100.0, nper=5000.0)
+
+
+def test_nper_pmt_zero_bad_signs_raises() -> None:
+    # pmt=0, pv and fv same sign -> ratio <= 0 -> no real solution.
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="nper", pv=-1000.0, fv=-2000.0, pmt=0.0, rate=0.05)
+
+
+def test_nper_general_no_solution_raises() -> None:
+    # pmt!=0 with inputs making (k-fv)/(k+pv) <= 0 -> no real solution.
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="nper", pv=3000.0, fv=1000.0, pmt=-100.0, rate=0.05)
+
+
+def test_irr_no_root_in_range_raises() -> None:
+    # IRR ~ 999/period (> 1000% cap) -> sign change but no root in searched range.
+    with pytest.raises(InvalidInput):
+        irr([-1.0, 1000.0])
+
+
+def test_xirr_no_root_in_range_raises() -> None:
+    with pytest.raises(InvalidInput):
+        xirr([_cf(2021, -1.0), _cf(2022, 1000.0)])
+
+
+def test_mirr_too_few_cashflows_raises() -> None:
+    with pytest.raises(InvalidInput):
+        mirr([-100.0], finance_rate=0.1, reinvest_rate=0.1)
+
+
+def test_mirr_ignores_zero_cashflow() -> None:
+    # A 0.0 flow is neither financed nor reinvested; result must still be valid.
+    result = mirr([-1000.0, 0.0, 500.0, 700.0], finance_rate=0.10, reinvest_rate=0.12)
+    assert result.mirr > 0.0
+
+
+def test_bond_price_nonpositive_maturity_raises() -> None:
+    with pytest.raises(InvalidInput):
+        bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=0.0, ytm=0.06, frequency=2)
+
+
+def test_bond_price_zero_periods_raises() -> None:
+    # Tiny maturity rounds to 0 whole periods (within tolerance) -> n < 1.
+    with pytest.raises(InvalidInput):
+        bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=1e-10, ytm=0.06, frequency=1)
+
+
+def test_bisect_bracket_returns_after_iteration_cap() -> None:
+    # An enormous bracket cannot converge within 500 halvings -> hits the fallback return.
+    result = _bisect_bracket(lambda x: x, -1e200, 1e200)
+    assert math.isfinite(result)
+
+
+def test_find_all_roots_captures_exact_grid_zero() -> None:
+    # A root that lands exactly on a grid abscissa is recorded as an exact zero.
+    low, high, grid_points = -0.999999, 10.0, 1100
+    step = (high - low) / (grid_points - 1)
+    gp = low + 50 * step
+    roots = _find_all_roots(lambda x: x - gp, low=low, high=high, grid_points=grid_points)
+    assert any(abs(r - gp) < 1e-9 for r in roots)
+
+
+def test_find_all_roots_dedups_close_roots() -> None:
+    # With a wide dedup tolerance, two distinct roots collapse to one.
+    roots = _find_all_roots(lambda x: (x - 0.1) * (x - 0.2), dedup_tol=1.0)
+    assert len(roots) == 1

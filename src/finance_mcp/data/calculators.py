@@ -50,14 +50,22 @@ def _bisect(f: Callable[[float], float], low: float = -0.999999, high: float = 1
     """Find a single root of ``f``, expanding ``high`` to bracket a sign change.
 
     For monotonic functions (TVM rate, bond yield). Raises InvalidInput if no sign
-    change can be bracketed within the search range.
+    change can be bracketed within the search range — including when ``f`` overflows
+    for large arguments (e.g. ``(1+r)**nper`` with very large ``nper``) before a
+    bracket is found, rather than letting a raw OverflowError escape.
     """
     f_low = f(low)
-    f_high = f(high)
+    try:
+        f_high = f(high)
+    except OverflowError as exc:
+        raise InvalidInput("Could not bracket a root in the searched range.") from exc
     attempts = 0
     while f_low * f_high > 0.0 and attempts < 100:
         high *= 2.0
-        f_high = f(high)
+        try:
+            f_high = f(high)
+        except OverflowError:
+            break  # f exploded past the bracket; treat as no bracketable root
         attempts += 1
     if f_low * f_high > 0.0:
         raise InvalidInput("Could not bracket a root in the searched range.")
@@ -166,7 +174,9 @@ def _rate(pv: float, fv: float, pmt: float, nper: float, due: bool = False) -> f
         return growth_factor - 1.0
 
     # General case: solve f(r) = fv(pv, pmt, r, nper) - fv_target = 0 numerically.
-    return _bisect(lambda r: _fv(pv, pmt, r, nper, due) - fv)
+    # Search from high=1.0 (100%/period): covers every realistic per-period rate while
+    # keeping (1+r)**nper finite for large nper (high=10 overflows for, e.g., nper=360).
+    return _bisect(lambda r: _fv(pv, pmt, r, nper, due) - fv, high=1.0)
 
 
 def time_value_of_money(
