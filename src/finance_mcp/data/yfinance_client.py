@@ -410,12 +410,15 @@ class YFinanceClient:
             raise SymbolNotFound(
                 f"No analyst data for '{symbol}'. The symbol may be invalid or delisted."
             )
-        mean = _opt(info.get("recommendationMean"))
-        analysts = _opt_int(info.get("numberOfAnalystOpinions"))
-        target_mean = _opt(info.get("targetMeanPrice"))
-        target_median = _opt(info.get("targetMedianPrice"))
-        target_high = _opt(info.get("targetHighPrice"))
-        target_low = _opt(info.get("targetLowPrice"))
+        try:
+            mean = _opt(info.get("recommendationMean"))
+            analysts = _opt_int(info.get("numberOfAnalystOpinions"))
+            target_mean = _opt(info.get("targetMeanPrice"))
+            target_median = _opt(info.get("targetMedianPrice"))
+            target_high = _opt(info.get("targetHighPrice"))
+            target_low = _opt(info.get("targetLowPrice"))
+        except Exception as exc:  # non-numeric values from the source
+            raise DataUnavailable(f"Failed to parse analyst data for '{symbol}': {exc}") from exc
         targets = (target_mean, target_median, target_high, target_low)
         if mean is None and analysts is None and all(t is None for t in targets):
             raise DataUnavailable(

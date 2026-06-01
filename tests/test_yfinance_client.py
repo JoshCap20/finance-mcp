@@ -1011,17 +1011,12 @@ def test_get_analyst_data_no_coverage_raises_data_unavailable() -> None:
 
 
 def test_get_analyst_data_no_coverage_is_not_symbol_not_found() -> None:
+    # SymbolNotFound subclasses DataUnavailable; assert it is the base class, not the subclass.
     info = {"longName": "SPDR S&P 500 ETF", "currency": "USD"}
     client = make_client(factory=fake_ticker_factory(info=info))
-    with pytest.raises(DataUnavailable):
+    with pytest.raises(DataUnavailable) as exc_info:
         client.get_analyst_data("SPY")
-    # SymbolNotFound subclasses DataUnavailable, so assert it is NOT that subclass.
-    try:
-        client.get_analyst_data("SPY")
-    except SymbolNotFound:  # pragma: no cover - must not happen
-        pytest.fail("no-coverage should raise DataUnavailable, not SymbolNotFound")
-    except DataUnavailable:
-        pass
+    assert type(exc_info.value) is DataUnavailable
 
 
 def test_get_analyst_data_raw_error_is_symbol_not_found() -> None:
@@ -1081,6 +1076,37 @@ def test_get_analyst_data_parse_error_is_data_unavailable() -> None:
         [{"period": "0m", "strongBuy": object(), "buy": 1, "hold": 1, "sell": 0, "strongSell": 0}]
     )
     client = make_client(factory=fake_ticker_factory(info=info, recommendations=bad_df))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_analyst_data("AAPL")
+    assert "Failed to parse analyst data for 'AAPL'" in str(exc.value)
+
+
+def test_get_analyst_data_non_numeric_recommendation_mean_raises_data_unavailable() -> None:
+    # Yahoo occasionally returns a string label (e.g. "buy") instead of a float for
+    # recommendationMean.  float("buy") raises ValueError — that must surface as
+    # DataUnavailable, not a raw traceback.
+    info = {
+        "longName": "Apple Inc.",
+        "currency": "USD",
+        "recommendationMean": "buy",  # non-numeric — float() will raise ValueError
+        "numberOfAnalystOpinions": 40,
+    }
+    client = make_client(factory=fake_ticker_factory(info=info))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_analyst_data("AAPL")
+    assert "Failed to parse analyst data for 'AAPL'" in str(exc.value)
+
+
+def test_get_analyst_data_non_numeric_target_price_raises_data_unavailable() -> None:
+    # Same class of bug: a non-numeric targetMeanPrice (e.g. a string) must surface
+    # as DataUnavailable, not a raw ValueError/TypeError.
+    info = {
+        "longName": "Apple Inc.",
+        "currency": "USD",
+        "numberOfAnalystOpinions": 40,
+        "targetMeanPrice": "n/a",  # non-numeric — float() will raise ValueError
+    }
+    client = make_client(factory=fake_ticker_factory(info=info))
     with pytest.raises(DataUnavailable) as exc:
         client.get_analyst_data("AAPL")
     assert "Failed to parse analyst data for 'AAPL'" in str(exc.value)
