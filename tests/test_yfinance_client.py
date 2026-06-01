@@ -424,3 +424,27 @@ def test_get_financials_cached_within_ttl() -> None:
     clock.advance(3601.0)
     client.get_financials("AAPL", "income", "annual")
     assert calls["n"] == 2
+
+
+def test_get_financials_filter_reuses_cached_fetch() -> None:
+    calls = {"n": 0}
+    df = make_financials_df(INCOME, ["2024-09-30", "2023-09-30"])
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(financials={"income_stmt": df})(symbol)
+
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    full = client.get_financials("AAPL", "income", "annual")
+    f1 = client.get_financials("AAPL", "income", "annual", line_items=["Total Revenue"])
+    f2 = client.get_financials("AAPL", "income", "annual", line_items=["Net Income"])
+    assert calls["n"] == 1  # one fetch; both filters reuse the cached statement
+    assert list(f1.line_items) == ["Total Revenue"]
+    assert list(f2.line_items) == ["Net Income"]
+    assert set(full.line_items) == {"Total Revenue", "Net Income"}  # cached object un-mutated
