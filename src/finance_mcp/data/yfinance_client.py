@@ -8,7 +8,7 @@ because we cannot enumerate every Yahoo failure mode.
 import math
 import time
 from collections.abc import Callable
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import yfinance as yf
 from yfinance.exceptions import YFException
@@ -26,9 +26,13 @@ from finance_mcp.data.models import (
     PriceSummary,
     Quote,
     SplitEvent,
+    Statement,
+    StatementPeriod,
 )
 
 DEFAULT_MAX_BARS = 260
+SMA_SHORT_WINDOW = 50
+SMA_LONG_WINDOW = 200
 
 _FINANCIALS_ATTR = {
     ("income", "annual"): "income_stmt",
@@ -215,15 +219,15 @@ class YFinanceClient:
             annualized_return_percent=analytics.annualized_return(closes),
             annualized_volatility_percent=analytics.annualized_volatility(closes),
             max_drawdown_percent=analytics.max_drawdown(closes),
-            sma_50=analytics.sma(closes, 50),
-            sma_200=analytics.sma(closes, 200),
+            sma_50=analytics.sma(closes, SMA_SHORT_WINDOW),
+            sma_200=analytics.sma(closes, SMA_LONG_WINDOW),
         )
 
     def get_financials(
         self,
         symbol: str,
-        statement: Literal["income", "balance", "cashflow"],
-        period: Literal["annual", "quarterly"],
+        statement: Statement,
+        period: StatementPeriod,
         line_items: list[str] | None = None,
     ) -> FinancialStatement:
         full = cast(
@@ -242,8 +246,8 @@ class YFinanceClient:
     def _fetch_financials(
         self,
         symbol: str,
-        statement: Literal["income", "balance", "cashflow"],
-        period: Literal["annual", "quarterly"],
+        statement: Statement,
+        period: StatementPeriod,
     ) -> FinancialStatement:
         attr = _FINANCIALS_ATTR[(statement, period)]
         try:

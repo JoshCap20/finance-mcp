@@ -11,13 +11,16 @@ from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import (
     BondAnalytics,
     BondYTM,
+    Compounding,
     DatedCashflow,
     IRRResult,
     LoanSchedule,
     MIRRResult,
     NPVResult,
     RateConversionResult,
+    RateDirection,
     TVMResult,
+    TVMVariable,
 )
 
 
@@ -27,7 +30,7 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool
     def time_value_of_money(
         solve_for: Annotated[
-            Literal["pv", "fv", "pmt", "rate", "nper"],
+            TVMVariable,
             Field(description="Which unknown to solve for. Provide all other variables."),
         ],
         pv: Annotated[
@@ -264,11 +267,11 @@ def register(mcp: FastMCP) -> None:
             Field(gt=0, description="Compounding periods per year, e.g. 12 for monthly."),
         ],
         direction: Annotated[
-            Literal["nominal_to_effective", "effective_to_nominal"],
+            RateDirection,
             Field(description="Which way to convert."),
         ],
         compounding: Annotated[
-            Literal["discrete", "continuous"],
+            Compounding,
             Field(
                 description="Compounding: 'discrete' uses periods_per_year; 'continuous' uses e^r."
             ),

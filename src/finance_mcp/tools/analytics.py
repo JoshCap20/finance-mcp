@@ -8,9 +8,8 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from finance_mcp.data.errors import DataUnavailable
-from finance_mcp.data.models import KeyMetrics, PerformanceStats
+from finance_mcp.data.models import HistoryPeriod, KeyMetrics, PerformanceStats
 from finance_mcp.data.yfinance_client import YFinanceClient
-from finance_mcp.tools.equities import Period  # reuse the period Literal
 
 
 def register(mcp: FastMCP, client: YFinanceClient) -> None:
@@ -34,7 +33,9 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
     @mcp.tool
     async def analyze_performance(
         ticker: Annotated[str, Field(description="Ticker symbol, e.g. 'AAPL'.")],
-        period: Annotated[Period, Field(description="Look-back window for the statistics.")] = "1y",
+        period: Annotated[
+            HistoryPeriod, Field(description="Look-back window for the statistics.")
+        ] = "1y",
     ) -> PerformanceStats:
         """Return and risk stats from daily auto-adjusted closes over the window.
 

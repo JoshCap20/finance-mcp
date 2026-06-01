@@ -6,6 +6,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 TVMVariable = Literal["pv", "fv", "pmt", "rate", "nper"]
+Statement = Literal["income", "balance", "cashflow"]
+StatementPeriod = Literal["annual", "quarterly"]
+HistoryPeriod = Literal["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
+HistoryInterval = Literal["1m", "5m", "15m", "30m", "1h", "1d", "1wk", "1mo"]
+RateDirection = Literal["nominal_to_effective", "effective_to_nominal"]
+Compounding = Literal["discrete", "continuous"]
 
 
 class TVMResult(BaseModel):
@@ -89,10 +95,8 @@ class RateConversionResult(BaseModel):
 
     input_rate: float = Field(description="The rate provided, as a decimal.")
     periods_per_year: int = Field(description="Compounding periods per year used.")
-    direction: Literal["nominal_to_effective", "effective_to_nominal"] = Field(
-        description="Conversion performed."
-    )
-    compounding: Literal["discrete", "continuous"] = Field(
+    direction: RateDirection = Field(description="Conversion performed.")
+    compounding: Compounding = Field(
         default="discrete", description="Compounding convention used for the conversion."
     )
     converted_rate: float = Field(description="The resulting rate, as a decimal.")
@@ -182,8 +186,8 @@ class FinancialStatement(BaseModel):
     """A financial statement (income/balance/cashflow) as a label -> per-period values table."""
 
     symbol: str = Field(description="Ticker symbol.")
-    statement: Literal["income", "balance", "cashflow"] = Field(description="Which statement.")
-    period: Literal["annual", "quarterly"] = Field(description="Reporting period granularity.")
+    statement: Statement = Field(description="Which statement.")
+    period: StatementPeriod = Field(description="Reporting period granularity.")
     period_ends: list[str] = Field(
         description="Period-end dates (ISO 8601), most recent first; values align to this order."
     )

@@ -17,12 +17,14 @@ from finance_mcp.data.models import (
     AmortizationRow,
     BondAnalytics,
     BondYTM,
+    Compounding,
     DatedCashflow,
     IRRResult,
     LoanSchedule,
     MIRRResult,
     NPVResult,
     RateConversionResult,
+    RateDirection,
     TVMResult,
     TVMVariable,
 )
@@ -436,8 +438,8 @@ def xirr(cashflows: list[DatedCashflow]) -> IRRResult:
 def convert_rate(
     rate: float,
     periods_per_year: int,
-    direction: Literal["nominal_to_effective", "effective_to_nominal"],
-    compounding: Literal["discrete", "continuous"] = "discrete",
+    direction: RateDirection,
+    compounding: Compounding = "discrete",
 ) -> RateConversionResult:
     """Convert between a nominal annual rate and an effective annual rate (EAR).
 
