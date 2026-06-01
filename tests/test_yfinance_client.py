@@ -11,6 +11,7 @@ from finance_mcp.data.models import (
     CompanyProfile,
     DividendEvent,
     FinancialStatement,
+    KeyMetrics,
     PriceBar,
     PriceHistory,
     PriceSummary,
@@ -702,3 +703,120 @@ def test_get_company_profile_dividends_below_cap_returns_all() -> None:
     client = _profile_client(factory=fake_ticker_factory(info=FULL_INFO, dividends=div))
     p = client.get_company_profile("AAPL")
     assert [d.date for d in p.recent_dividends] == ["2023-02-01", "2023-05-01", "2023-08-01"]
+
+
+METRICS_INFO = {
+    "longName": "Apple Inc.",
+    "trailingPE": 37.73,
+    "forwardPE": 32.48,
+    "priceToBook": 42.98,
+    "priceToSalesTrailing12Months": 10.15,
+    "pegRatio": 2.72,
+    "enterpriseValue": 4599540350976,
+    "enterpriseToEbitda": 28.75,
+    "enterpriseToRevenue": 10.19,
+    "returnOnEquity": 1.41,
+    "returnOnAssets": 0.26,
+    "grossMargins": 0.478,
+    "operatingMargins": 0.322,
+    "profitMargins": 0.271,
+    "ebitdaMargins": 0.354,
+    "debtToEquity": 79.55,
+    "currentRatio": 1.07,
+    "quickRatio": 0.906,
+    "totalDebt": 84710998016,
+    "totalCash": 68507000832,
+    "freeCashflow": 101090746368,
+    "ebitda": 159975997440,
+    "trailingEps": 8.27,
+    "forwardEps": 9.61,
+    "revenuePerShare": 30.53,
+    "bookValue": 7.26,
+}
+
+
+def _metrics_client(**kw: Any) -> YFinanceClient:
+    factory = kw.pop("factory")
+    return YFinanceClient(
+        ticker_factory=factory,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+
+
+def test_get_key_metrics_maps_fields() -> None:
+    m = _metrics_client(factory=fake_ticker_factory(info=METRICS_INFO)).get_key_metrics("AAPL")
+    assert isinstance(m, KeyMetrics)
+    assert m.symbol == "AAPL"
+    assert m.trailing_pe == 37.73 and m.forward_pe == 32.48 and m.price_to_book == 42.98
+    assert m.price_to_sales == 10.15 and m.peg_ratio == 2.72
+    assert m.enterprise_value == 4599540350976 and m.ev_to_ebitda == 28.75
+    assert m.ev_to_revenue == 10.19
+    assert m.return_on_equity == 1.41 and m.return_on_assets == 0.26
+    assert m.gross_margins == 0.478 and m.operating_margins == 0.322
+    assert m.profit_margins == 0.271 and m.ebitda_margins == 0.354
+    assert m.debt_to_equity == 79.55 and m.current_ratio == 1.07 and m.quick_ratio == 0.906
+    assert m.total_debt == 84710998016 and m.total_cash == 68507000832
+    assert m.free_cashflow == 101090746368 and m.ebitda == 159975997440
+    assert m.trailing_eps == 8.27 and m.forward_eps == 9.61
+    assert m.revenue_per_share == 30.53 and m.book_value == 7.26
+
+
+def test_get_key_metrics_missing_and_nan_are_none() -> None:
+    info = {"longName": "X Corp", "trailingPE": float("nan")}
+    m = _metrics_client(factory=fake_ticker_factory(info=info)).get_key_metrics("X")
+    assert m.symbol == "X" and m.trailing_pe is None
+    assert m.ebitda is None and m.profit_margins is None
+
+
+def test_get_key_metrics_no_name_raises_symbol_not_found() -> None:
+    client = _metrics_client(factory=fake_ticker_factory(info={"trailingPegRatio": None}))
+    with pytest.raises(SymbolNotFound):
+        client.get_key_metrics("BAD")
+
+
+def test_get_key_metrics_typed_error_is_data_unavailable() -> None:
+    client = _metrics_client(factory=fake_ticker_factory(info_error=YFException("rate limited")))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_key_metrics("AAPL")
+    assert "rate limited" in str(exc.value)
+
+
+def test_get_key_metrics_raw_error_is_symbol_not_found() -> None:
+    client = _metrics_client(factory=fake_ticker_factory(info_error=KeyError("boom")))
+    with pytest.raises(SymbolNotFound):
+        client.get_key_metrics("AAPL")
+
+
+def test_get_key_metrics_mapping_failure_is_data_unavailable() -> None:
+    # A value that survives the name check but fails float() coercion in mapping.
+    info = {"longName": "Apple Inc.", "trailingPE": object()}
+    client = _metrics_client(factory=fake_ticker_factory(info=info))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_key_metrics("AAPL")
+    assert "Failed to parse metrics for 'AAPL'" in str(exc.value)
+
+
+def test_get_key_metrics_caches_within_ttl() -> None:
+    calls = {"n": 0}
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(info=METRICS_INFO)(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=clock,
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.get_key_metrics("AAPL")
+    client.get_key_metrics("AAPL")
+    assert calls["n"] == 1
+    clock.advance(3601.0)
+    client.get_key_metrics("AAPL")
+    assert calls["n"] == 2

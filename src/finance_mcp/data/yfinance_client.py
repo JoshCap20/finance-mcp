@@ -18,6 +18,7 @@ from finance_mcp.data.models import (
     CompanyProfile,
     DividendEvent,
     FinancialStatement,
+    KeyMetrics,
     PriceBar,
     PriceHistory,
     PriceSummary,
@@ -281,6 +282,59 @@ class YFinanceClient:
             )
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse profile for '{symbol}': {exc}") from exc
+
+    def get_key_metrics(self, symbol: str) -> KeyMetrics:
+        return cast(
+            KeyMetrics,
+            self._cached(
+                ("metrics", symbol), self._fundamentals_ttl, lambda: self._fetch_metrics(symbol)
+            ),
+        )
+
+    def _fetch_metrics(self, symbol: str) -> KeyMetrics:
+        try:
+            info = self._ticker(symbol).info
+        except YFException as exc:
+            raise DataUnavailable(f"Failed to fetch metrics for '{symbol}': {exc}") from exc
+        except Exception as exc:  # raw leak for symbols with no data
+            raise SymbolNotFound(
+                f"No metrics data for '{symbol}'. The symbol may be invalid or delisted."
+            ) from exc
+        if not info or not (info.get("longName") or info.get("shortName")):
+            raise SymbolNotFound(
+                f"No metrics data for '{symbol}'. The symbol may be invalid or delisted."
+            )
+        try:
+            return KeyMetrics(
+                symbol=symbol,
+                trailing_pe=_opt(info.get("trailingPE")),
+                forward_pe=_opt(info.get("forwardPE")),
+                price_to_book=_opt(info.get("priceToBook")),
+                price_to_sales=_opt(info.get("priceToSalesTrailing12Months")),
+                peg_ratio=_opt(info.get("pegRatio")),
+                enterprise_value=_opt(info.get("enterpriseValue")),
+                ev_to_ebitda=_opt(info.get("enterpriseToEbitda")),
+                ev_to_revenue=_opt(info.get("enterpriseToRevenue")),
+                return_on_equity=_opt(info.get("returnOnEquity")),
+                return_on_assets=_opt(info.get("returnOnAssets")),
+                gross_margins=_opt(info.get("grossMargins")),
+                operating_margins=_opt(info.get("operatingMargins")),
+                profit_margins=_opt(info.get("profitMargins")),
+                ebitda_margins=_opt(info.get("ebitdaMargins")),
+                debt_to_equity=_opt(info.get("debtToEquity")),
+                current_ratio=_opt(info.get("currentRatio")),
+                quick_ratio=_opt(info.get("quickRatio")),
+                total_debt=_opt(info.get("totalDebt")),
+                total_cash=_opt(info.get("totalCash")),
+                free_cashflow=_opt(info.get("freeCashflow")),
+                ebitda=_opt(info.get("ebitda")),
+                trailing_eps=_opt(info.get("trailingEps")),
+                forward_eps=_opt(info.get("forwardEps")),
+                revenue_per_share=_opt(info.get("revenuePerShare")),
+                book_value=_opt(info.get("bookValue")),
+            )
+        except Exception as exc:  # surface any mapping failure verbatim
+            raise DataUnavailable(f"Failed to parse metrics for '{symbol}': {exc}") from exc
 
 
 def _dividend_events(series: Any, limit: int) -> list[DividendEvent]:
