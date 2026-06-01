@@ -53,11 +53,11 @@ structured results and report invalid inputs as clear errors.
 ## Run
 
 ```bash
-uv run finance-mcp        # stdio MCP server
+uv run mcp-finance        # stdio MCP server
 ```
 
 Add to an MCP client (e.g. Claude) as:
 
 ```json
-{ "mcpServers": { "finance": { "command": "uvx", "args": ["finance-mcp"] } } }
+{ "mcpServers": { "finance": { "command": "uvx", "args": ["mcp-finance"] } } }
 ```
