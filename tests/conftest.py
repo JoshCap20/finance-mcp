@@ -85,8 +85,8 @@ def fake_ticker_factory(
     fi_exc = fast_info_error or error
     hist_exc = history_error or error
     financials_map = financials or {}
-    # Records the ``count`` the last get_news call received, for passthrough assertions.
-    captured_news_count: dict[str, int] = {}
+    # Records the ``count`` and ``tab`` the last get_news call received, for passthrough assertions.
+    captured_news_count: dict[str, int | str] = {}
     _FINANCIALS_ATTRS = frozenset(
         {
             "income_stmt",
@@ -132,7 +132,8 @@ def fake_ticker_factory(
             if news_error is not None:
                 raise news_error
             captured_news_count["count"] = count
-            return (news or [])[:count]
+            captured_news_count["tab"] = tab
+            return news or []
 
         def __getattr__(self, name: str) -> Any:
             if name in _FINANCIALS_ATTRS:

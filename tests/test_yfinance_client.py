@@ -1394,12 +1394,14 @@ def test_get_news_click_through_fallback_link() -> None:
     assert article.link == "https://fallback.example/x"
 
 
-def test_get_news_passes_count_to_source() -> None:
+def test_get_news_clamps_to_count_and_passes_args_to_source() -> None:
+    # The fake returns ALL 3 items regardless of count; the client must clamp to 2.
     factory = fake_ticker_factory(news=NEWS_ITEMS)
     client = _news_client(factory=factory)
     result = client.get_news("AAPL", count=2)
+    assert len(result.articles) == 2  # client-side clamp, not the fake
     assert factory.captured_news_count["count"] == 2  # type: ignore[attr-defined]
-    assert len(result.articles) == 2  # fake honors count by slicing
+    assert factory.captured_news_count["tab"] == "news"  # type: ignore[attr-defined]
 
 
 def test_get_news_parse_error_is_data_unavailable() -> None:

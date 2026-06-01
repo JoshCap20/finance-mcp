@@ -464,7 +464,7 @@ class YFinanceClient:
         if not items:
             return NewsResult(symbol=symbol, articles=[])
         try:
-            articles = [a for a in (_news_article(it) for it in items) if a is not None]
+            articles = [a for a in (_news_article(it) for it in items) if a is not None][:count]
             return NewsResult(symbol=symbol, articles=articles)
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse news for '{symbol}': {exc}") from exc
