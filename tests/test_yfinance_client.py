@@ -560,3 +560,17 @@ def test_get_financials_filter_reuses_cached_fetch() -> None:
     assert list(f1.line_items) == ["Total Revenue"]
     assert list(f2.line_items) == ["Net Income"]
     assert set(full.line_items) == {"Total Revenue", "Net Income"}  # cached object un-mutated
+
+
+def test_get_company_profile_nan_employees_nulled_not_fatal() -> None:
+    info = {**FULL_INFO, "fullTimeEmployees": float("nan")}
+    client = _profile_client(factory=fake_ticker_factory(info=info))
+    p = client.get_company_profile("AAPL")
+    assert p.employees is None  # junk field nulls; profile still returned
+    assert p.name == "Apple Inc."
+
+
+def test_get_company_profile_float_employees_coerced_to_int() -> None:
+    info = {**FULL_INFO, "fullTimeEmployees": 166000.0}
+    client = _profile_client(factory=fake_ticker_factory(info=info))
+    assert client.get_company_profile("AAPL").employees == 166000

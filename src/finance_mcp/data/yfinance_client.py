@@ -268,7 +268,7 @@ class YFinanceClient:
                 industry=info.get("industry"),
                 country=info.get("country"),
                 website=info.get("website"),
-                employees=info.get("fullTimeEmployees"),
+                employees=_opt_int(info.get("fullTimeEmployees")),
                 summary=info.get("longBusinessSummary"),
                 currency=info.get("currency"),
                 market_cap=_opt(info.get("marketCap")),
@@ -310,3 +310,8 @@ def _opt(value: Any) -> float | None:
         return None
     f = float(value)
     return f if math.isfinite(f) else None
+
+
+def _opt_int(value: Any) -> int | None:
+    f = _opt(value)
+    return int(f) if f is not None else None
