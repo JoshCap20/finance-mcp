@@ -150,16 +150,16 @@ def register(mcp: FastMCP) -> None:
         with monthly payments. By default returns just the summary; set
         include_schedule=True for every row.
         """
-        try:
-            return calculators.loan_schedule(
-                principal=principal,
-                annual_rate=annual_rate,
-                term_months=term_months,
-                extra_payment=extra_payment,
-                include_schedule=include_schedule,
-            )
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        # Every precondition of calculators.loan_schedule is enforced by the Field
+        # constraints above (gt=0 / ge=0), so it cannot raise InvalidInput here — no
+        # error translation is needed (unlike tools whose inputs Field can't fully bound).
+        return calculators.loan_schedule(
+            principal=principal,
+            annual_rate=annual_rate,
+            term_months=term_months,
+            extra_payment=extra_payment,
+            include_schedule=include_schedule,
+        )
 
     @mcp.tool
     def npv(

@@ -8,15 +8,33 @@ because we cannot enumerate every Yahoo failure mode.
 import math
 import time
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import yfinance as yf
 from yfinance.exceptions import YFException
 
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
-from finance_mcp.data.models import PriceBar, PriceHistory, PriceSummary, Quote
+from finance_mcp.data.models import (
+    CompanyProfile,
+    DividendEvent,
+    FinancialStatement,
+    PriceBar,
+    PriceHistory,
+    PriceSummary,
+    Quote,
+    SplitEvent,
+)
 
 DEFAULT_MAX_BARS = 260
+
+_FINANCIALS_ATTR = {
+    ("income", "annual"): "income_stmt",
+    ("income", "quarterly"): "quarterly_income_stmt",
+    ("balance", "annual"): "balance_sheet",
+    ("balance", "quarterly"): "quarterly_balance_sheet",
+    ("cashflow", "annual"): "cashflow",
+    ("cashflow", "quarterly"): "quarterly_cashflow",
+}
 
 
 class YFinanceClient:
@@ -28,12 +46,14 @@ class YFinanceClient:
         time_fn: Callable[[], float] = time.monotonic,
         quote_ttl: float = 30.0,
         history_ttl: float = 300.0,
+        fundamentals_ttl: float = 3600.0,
         max_bars: int = DEFAULT_MAX_BARS,
     ) -> None:
         self._ticker = ticker_factory
         self._now = time_fn
         self._quote_ttl = quote_ttl
         self._history_ttl = history_ttl
+        self._fundamentals_ttl = fundamentals_ttl
         self._max_bars = max_bars
         self._cache: dict[tuple[str, ...], tuple[float, Any]] = {}
 
@@ -162,9 +182,136 @@ class YFinanceClient:
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse history for '{symbol}': {exc}") from exc
 
+    def get_financials(
+        self,
+        symbol: str,
+        statement: Literal["income", "balance", "cashflow"],
+        period: Literal["annual", "quarterly"],
+        line_items: list[str] | None = None,
+    ) -> FinancialStatement:
+        full = cast(
+            FinancialStatement,
+            self._cached(
+                ("financials", symbol, statement, period),
+                self._fundamentals_ttl,
+                lambda: self._fetch_financials(symbol, statement, period),
+            ),
+        )
+        if line_items is None:
+            return full
+        wanted = {li: full.line_items[li] for li in line_items if li in full.line_items}
+        return full.model_copy(update={"line_items": wanted})
+
+    def _fetch_financials(
+        self,
+        symbol: str,
+        statement: Literal["income", "balance", "cashflow"],
+        period: Literal["annual", "quarterly"],
+    ) -> FinancialStatement:
+        attr = _FINANCIALS_ATTR[(statement, period)]
+        try:
+            df = getattr(self._ticker(symbol), attr)
+        except Exception as exc:  # surface any yfinance failure verbatim
+            raise DataUnavailable(
+                f"Failed to fetch {statement} statement for '{symbol}': {exc}"
+            ) from exc
+        if df is None or df.empty:
+            raise SymbolNotFound(
+                f"No {statement} statement for '{symbol}'. Check the ticker symbol."
+            )
+        try:
+            period_ends = [col.date().isoformat() for col in df.columns]
+            line_items: dict[str, list[float | None]] = {
+                str(idx): [_opt(v) for v in row] for idx, row in df.iterrows()
+            }
+            return FinancialStatement(
+                symbol=symbol,
+                statement=statement,
+                period=period,
+                period_ends=period_ends,
+                line_items=line_items,
+            )
+        except Exception as exc:  # surface any parsing failure verbatim
+            raise DataUnavailable(
+                f"Failed to parse {statement} statement for '{symbol}': {exc}"
+            ) from exc
+
+    def get_company_profile(self, symbol: str) -> CompanyProfile:
+        return cast(
+            CompanyProfile,
+            self._cached(
+                ("profile", symbol), self._fundamentals_ttl, lambda: self._fetch_profile(symbol)
+            ),
+        )
+
+    def _fetch_profile(self, symbol: str) -> CompanyProfile:
+        try:
+            ticker = self._ticker(symbol)
+            info = ticker.info
+            dividends = ticker.dividends
+            splits = ticker.splits
+        except YFException as exc:
+            raise DataUnavailable(f"Failed to fetch profile for '{symbol}': {exc}") from exc
+        except Exception as exc:  # fast_info-style raw leak for symbols with no data
+            raise SymbolNotFound(
+                f"No profile data for '{symbol}'. The symbol may be invalid or delisted."
+            ) from exc
+        if not info or not (info.get("longName") or info.get("shortName")):
+            raise SymbolNotFound(
+                f"No profile data for '{symbol}'. The symbol may be invalid or delisted."
+            )
+        try:
+            return CompanyProfile(
+                symbol=symbol,
+                name=info.get("longName") or info.get("shortName"),
+                sector=info.get("sector"),
+                industry=info.get("industry"),
+                country=info.get("country"),
+                website=info.get("website"),
+                employees=_opt_int(info.get("fullTimeEmployees")),
+                summary=info.get("longBusinessSummary"),
+                currency=info.get("currency"),
+                market_cap=_opt(info.get("marketCap")),
+                trailing_pe=_opt(info.get("trailingPE")),
+                forward_pe=_opt(info.get("forwardPE")),
+                dividend_yield=_opt(info.get("dividendYield")),
+                beta=_opt(info.get("beta")),
+                recent_dividends=_dividend_events(dividends, limit=8),
+                splits=_split_events(splits),
+            )
+        except Exception as exc:  # surface any parsing failure verbatim
+            raise DataUnavailable(f"Failed to parse profile for '{symbol}': {exc}") from exc
+
+
+def _dividend_events(series: Any, limit: int) -> list[DividendEvent]:
+    if series is None or len(series) == 0:
+        return []
+    events: list[DividendEvent] = []
+    for ts, value in series.tail(limit).items():
+        amount = _opt(value)
+        if amount is not None:
+            events.append(DividendEvent(date=ts.date().isoformat(), amount=amount))
+    return events
+
+
+def _split_events(series: Any) -> list[SplitEvent]:
+    if series is None or len(series) == 0:
+        return []
+    events: list[SplitEvent] = []
+    for ts, value in series.items():
+        ratio = _opt(value)
+        if ratio is not None:
+            events.append(SplitEvent(date=ts.date().isoformat(), ratio=ratio))
+    return events
+
 
 def _opt(value: Any) -> float | None:
     if value is None:
         return None
     f = float(value)
     return f if math.isfinite(f) else None
+
+
+def _opt_int(value: Any) -> int | None:
+    f = _opt(value)
+    return int(f) if f is not None else None

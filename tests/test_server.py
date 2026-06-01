@@ -32,6 +32,17 @@ def test_build_default_client_honors_env_override(monkeypatch: pytest.MonkeyPatc
     assert client._quote_ttl == 45.0
 
 
+def test_build_default_client_uses_fundamentals_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FINANCE_MCP_FUNDAMENTALS_CACHE_TTL_SECONDS", "7200")
+    client = build_default_client()
+    assert client._fundamentals_ttl == 7200.0
+
+
+def test_build_default_client_honors_history_ttl_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FINANCE_MCP_HISTORY_CACHE_TTL_SECONDS", "120")
+    assert build_default_client()._history_ttl == 120.0
+
+
 def test_create_server_returns_fastmcp() -> None:
     assert isinstance(create_server(), FastMCP)
 

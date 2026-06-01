@@ -8,11 +8,13 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from finance_mcp.data.errors import DataUnavailable
-from finance_mcp.data.models import PriceHistory, Quote
+from finance_mcp.data.models import CompanyProfile, FinancialStatement, PriceHistory, Quote
 from finance_mcp.data.yfinance_client import YFinanceClient
 
 Period = Literal["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
 Interval = Literal["1m", "5m", "15m", "30m", "1h", "1d", "1wk", "1mo"]
+Statement = Literal["income", "balance", "cashflow"]
+StatementPeriod = Literal["annual", "quarterly"]
 
 
 def register(mcp: FastMCP, client: YFinanceClient) -> None:
@@ -51,5 +53,48 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         """Historical OHLCV bars plus a summary; long windows are truncated (summary is full)."""
         try:
             return await asyncio.to_thread(client.get_price_history, ticker, period, interval)
+        except DataUnavailable as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    async def get_financials(
+        ticker: Annotated[str, Field(description="Ticker symbol, e.g. 'AAPL'.")],
+        statement: Annotated[
+            Statement, Field(description="Which statement: 'income', 'balance', or 'cashflow'.")
+        ],
+        period: Annotated[
+            StatementPeriod, Field(description="Reporting period granularity.")
+        ] = "annual",
+        line_items: Annotated[
+            list[str] | None,
+            Field(
+                description="Specific line-item labels to return (exactly as they appear in the "
+                "statement, e.g. 'Total Revenue'); omit for the full statement."
+            ),
+        ] = None,
+    ) -> FinancialStatement:
+        """Income statement, balance sheet, or cash flow.
+
+        Returns line items by period (most recent first); values are in the company's reporting
+        currency in absolute units (e.g. 416161000000 = 416.161 billion), null where not reported.
+        """
+        try:
+            return await asyncio.to_thread(
+                client.get_financials, ticker, statement, period, line_items
+            )
+        except DataUnavailable as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    async def get_company_profile(
+        ticker: Annotated[str, Field(description="Ticker symbol, e.g. 'AAPL'.")],
+    ) -> CompanyProfile:
+        """Company profile and key stats.
+
+        Includes sector, industry, market cap and P/E, with recent dividends and splits.
+        Note: dividend_yield is a percent (e.g. 5.92 means 5.92%).
+        """
+        try:
+            return await asyncio.to_thread(client.get_company_profile, ticker)
         except DataUnavailable as exc:
             raise ToolError(str(exc)) from exc
