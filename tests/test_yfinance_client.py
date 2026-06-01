@@ -1,6 +1,6 @@
 import math
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from yfinance.exceptions import YFException
@@ -574,3 +574,138 @@ def test_get_company_profile_float_employees_coerced_to_int() -> None:
     info = {**FULL_INFO, "fullTimeEmployees": 166000.0}
     client = _profile_client(factory=fake_ticker_factory(info=info))
     assert client.get_company_profile("AAPL").employees == 166000
+
+
+@pytest.mark.parametrize(
+    ("statement", "period", "attr"),
+    [
+        ("income", "annual", "income_stmt"),
+        ("income", "quarterly", "quarterly_income_stmt"),
+        ("balance", "annual", "balance_sheet"),
+        ("balance", "quarterly", "quarterly_balance_sheet"),
+        ("cashflow", "annual", "cashflow"),
+        ("cashflow", "quarterly", "quarterly_cashflow"),
+    ],
+)
+def test_get_financials_all_statement_period_combos(
+    statement: Literal["income", "balance", "cashflow"],
+    period: Literal["annual", "quarterly"],
+    attr: str,
+) -> None:
+    df = make_financials_df({"X": [1.0]}, ["2024-12-31"])
+    client = _fin_client(factory=fake_ticker_factory(financials={attr: df}))
+    fs = client.get_financials("AAPL", statement, period)
+    assert fs.statement == statement and fs.period == period
+    assert fs.period_ends == ["2024-12-31"] and fs.line_items["X"] == [1.0]
+
+
+def test_get_quote_zero_previous_close_change_pct_none() -> None:
+    fi = {**QUOTE_FI, "previous_close": 0.0}
+    [q] = _client(factory=fake_ticker_factory(fast_info=fi)).get_quote(["AAPL"])
+    assert q.change == pytest.approx(190.0) and q.change_percent is None and q.previous_close == 0.0
+
+
+def test_get_price_history_caches_and_keys_on_interval() -> None:
+    calls = {"n": 0}
+    df = make_history_df([100.0, 101.0])
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(history_df=df)(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=clock,
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.get_price_history("AAPL", "1mo", "1d")
+    client.get_price_history("AAPL", "1mo", "1d")
+    assert calls["n"] == 1
+    client.get_price_history("AAPL", "1mo", "1wk")  # different interval -> distinct key
+    assert calls["n"] == 2
+    clock.advance(301.0)
+    client.get_price_history("AAPL", "1mo", "1d")  # expired -> refetch
+    assert calls["n"] == 3
+
+
+def test_get_company_profile_caches_within_ttl() -> None:
+    calls = {"n": 0}
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(info=FULL_INFO)(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=clock,
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.get_company_profile("AAPL")
+    client.get_company_profile("AAPL")
+    assert calls["n"] == 1
+    clock.advance(3601.0)
+    client.get_company_profile("AAPL")
+    assert calls["n"] == 2
+
+
+def test_get_quote_empty_list_returns_empty() -> None:
+    assert _client().get_quote([]) == []
+
+
+def test_get_quote_batch_fails_if_any_symbol_missing() -> None:
+    def factory(symbol: str) -> object:
+        if symbol == "AAPL":
+            return fake_ticker_factory(fast_info=QUOTE_FI)(symbol)
+        return fake_ticker_factory(fast_info_error=KeyError("exchangeTimezoneName"))(symbol)
+
+    with pytest.raises(SymbolNotFound) as exc:
+        _client(factory=factory).get_quote(["AAPL", "MSFT"])
+    assert "MSFT" in str(exc.value)
+
+
+def test_get_price_history_single_bar() -> None:
+    client = _client(factory=fake_ticker_factory(history_df=make_history_df([100.0])))
+    h = client.get_price_history("AAPL", "1d", "1d")
+    assert h.summary.bars == 1 and h.summary.total_return_percent == 0.0
+    assert h.summary.start_date == h.summary.end_date and h.truncated is False
+
+
+def test_get_quote_non_price_nan_fields_nulled() -> None:
+    fi = {**QUOTE_FI, "market_cap": float("nan"), "last_volume": float("nan")}
+    [q] = _client(factory=fake_ticker_factory(fast_info=fi)).get_quote(["AAPL"])
+    assert q.price == 190.0 and q.market_cap is None and q.volume is None
+
+
+def test_get_company_profile_empty_long_name_uses_short_name() -> None:
+    factory = fake_ticker_factory(info={"longName": "", "shortName": "Apple"})
+    client = _profile_client(factory=factory)
+    assert client.get_company_profile("AAPL").name == "Apple"
+
+
+def test_get_financials_line_items_preserve_order() -> None:
+    df = make_financials_df(INCOME, ["2024-09-30", "2023-09-30"])
+    client = _fin_client(factory=fake_ticker_factory(financials={"income_stmt": df}))
+    fs = client.get_financials(
+        "AAPL", "income", "annual", line_items=["Net Income", "Total Revenue"]
+    )
+    assert list(fs.line_items) == ["Net Income", "Total Revenue"]
+
+
+def test_get_financials_line_items_all_miss_empty() -> None:
+    df = make_financials_df(INCOME, ["2024-09-30", "2023-09-30"])
+    client = _fin_client(factory=fake_ticker_factory(financials={"income_stmt": df}))
+    fs = client.get_financials("AAPL", "income", "annual", line_items=["Nonexistent"])
+    assert fs.line_items == {}
+
+
+def test_get_company_profile_dividends_below_cap_returns_all() -> None:
+    div = make_series(["2023-02-01", "2023-05-01", "2023-08-01"], [0.23, 0.24, 0.25])
+    client = _profile_client(factory=fake_ticker_factory(info=FULL_INFO, dividends=div))
+    p = client.get_company_profile("AAPL")
+    assert [d.date for d in p.recent_dividends] == ["2023-02-01", "2023-05-01", "2023-08-01"]
