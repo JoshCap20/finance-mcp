@@ -21,6 +21,8 @@ from finance_mcp.data.models import (
     DividendEvent,
     FinancialStatement,
     KeyMetrics,
+    NewsArticle,
+    NewsResult,
     PerformanceStats,
     PriceBar,
     PriceHistory,
@@ -442,6 +444,31 @@ class YFinanceClient:
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse analyst data for '{symbol}': {exc}") from exc
 
+    def get_news(self, symbol: str, count: int = 10) -> NewsResult:
+        return cast(
+            NewsResult,
+            self._cached(
+                ("news", symbol, str(count)),
+                self._history_ttl,
+                lambda: self._fetch_news(symbol, count),
+            ),
+        )
+
+    def _fetch_news(self, symbol: str, count: int) -> NewsResult:
+        try:
+            items = self._ticker(symbol).get_news(count=count, tab="news")
+        except YFException as exc:
+            raise DataUnavailable(f"Failed to fetch news for '{symbol}': {exc}") from exc
+        except Exception as exc:  # a failed news fetch is a data issue, not a missing symbol
+            raise DataUnavailable(f"Failed to fetch news for '{symbol}': {exc}") from exc
+        if not items:
+            return NewsResult(symbol=symbol, articles=[])
+        try:
+            articles = [a for a in (_news_article(it) for it in items) if a is not None][:count]
+            return NewsResult(symbol=symbol, articles=articles)
+        except Exception as exc:  # surface any parsing failure verbatim
+            raise DataUnavailable(f"Failed to parse news for '{symbol}': {exc}") from exc
+
     def search_symbols(self, query: str, max_results: int = 8) -> SymbolSearchResult:
         return cast(
             SymbolSearchResult,
@@ -494,6 +521,21 @@ def _symbol_match(q: dict[str, Any]) -> SymbolMatch:
         sector=q.get("sectorDisp"),
         industry=q.get("industryDisp"),
         score=_opt(q.get("score")),
+    )
+
+
+def _news_article(item: dict[str, Any]) -> NewsArticle | None:
+    content = item.get("content") or {}
+    title = content.get("title")
+    if not title:
+        return None
+    return NewsArticle(
+        title=title,
+        publisher=(content.get("provider") or {}).get("displayName"),
+        link=(content.get("canonicalUrl") or {}).get("url")
+        or (content.get("clickThroughUrl") or {}).get("url"),
+        published=content.get("pubDate"),
+        summary=content.get("summary") or None,
     )
 
 

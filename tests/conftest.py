@@ -69,6 +69,8 @@ def fake_ticker_factory(
     splits: pd.Series | None = None,
     info_error: Exception | None = None,
     recommendations: pd.DataFrame | None = None,
+    news: list[dict[str, Any]] | None = None,
+    news_error: Exception | None = None,
 ) -> Callable[[str], Any]:
     """Build a ticker factory returning a stub Ticker for any symbol.
 
@@ -83,6 +85,8 @@ def fake_ticker_factory(
     fi_exc = fast_info_error or error
     hist_exc = history_error or error
     financials_map = financials or {}
+    # Records the ``count`` and ``tab`` the last get_news call received, for passthrough assertions.
+    captured_news_count: dict[str, int | str] = {}
     _FINANCIALS_ATTRS = frozenset(
         {
             "income_stmt",
@@ -124,6 +128,13 @@ def fake_ticker_factory(
         def recommendations(self) -> Any:
             return recommendations if recommendations is not None else pd.DataFrame()
 
+        def get_news(self, count: int = 10, tab: str = "news") -> list[dict[str, Any]]:
+            if news_error is not None:
+                raise news_error
+            captured_news_count["count"] = count
+            captured_news_count["tab"] = tab
+            return news or []
+
         def __getattr__(self, name: str) -> Any:
             if name in _FINANCIALS_ATTRS:
                 if financials_error is not None:
@@ -134,6 +145,8 @@ def fake_ticker_factory(
     def factory(_symbol: str) -> Any:
         return _Ticker()
 
+    # Expose the captured get_news count so tests can assert passthrough.
+    factory.captured_news_count = captured_news_count  # type: ignore[attr-defined]
     return factory
 
 
@@ -164,6 +177,33 @@ def fake_search_factory(
         return SimpleNamespace(quotes=quotes or [])
 
     return _search
+
+
+def make_news_item(
+    title: str | None,
+    publisher: str | None = None,
+    link: str | None = None,
+    published: str | None = None,
+    summary: str | None = None,
+    *,
+    click_through: str | None = None,
+    omit_provider: bool = False,
+    omit_canonical: bool = False,
+) -> dict[str, Any]:
+    """Build a yfinance-shaped news item: ``{"id": ..., "content": {...}}``.
+
+    Mirrors the nested shape ``Ticker.get_news`` returns. ``omit_provider`` /
+    ``omit_canonical`` drop those nested keys entirely (to exercise the ``None``
+    guards); ``click_through`` provides the fallback link source.
+    """
+    content: dict[str, Any] = {"title": title, "summary": summary, "pubDate": published}
+    if not omit_provider:
+        content["provider"] = {"displayName": publisher} if publisher is not None else None
+    if not omit_canonical:
+        content["canonicalUrl"] = {"url": link} if link is not None else None
+    if click_through is not None:
+        content["clickThroughUrl"] = {"url": click_through}
+    return {"id": "id-" + (title or "none"), "content": content}
 
 
 def make_client(**kw: Any) -> YFinanceClient:

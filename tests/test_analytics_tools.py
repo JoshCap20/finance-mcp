@@ -21,7 +21,7 @@ async def test_analytics_tools_registered() -> None:
     async with Client(server) as client:
         names = {t.name for t in await client.list_tools()}
         assert {"get_key_metrics", "analyze_performance"} <= names
-        assert len(names) == 18  # 16 prior + analyst/search
+        assert len(names) == 19  # 18 prior + get_news
 
 
 async def test_get_key_metrics_tool() -> None:

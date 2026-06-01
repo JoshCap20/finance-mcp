@@ -5,15 +5,13 @@ and deterministic financial calculators. (Analysis prompts are planned.)
 
 Immediate roadmap:
 
-1. Additional yfinance wrappers - get_news (recent headlines for a ticker)
-
-2. More computed analytics
+1. More computed analytics
 
 - compare_peers (rank a set of tickers across key metrics)
 
-3. analyze_stock + compare_stocks — user-invoked slash commands that orchestrate the existing 14 tools into a methodology
-4. Public free data requiring keys - add optional extensions for fed data for interest rates, etc.
-5. Portfolio tools - add tools for portfolio analysis to extend specific stock functionality
+2. analyze_stock + compare_stocks — user-invoked slash commands that orchestrate the existing 14 tools into a methodology
+3. Public free data requiring keys - add optional extensions for fed data for interest rates, etc.
+4. Portfolio tools - add tools for portfolio analysis to extend specific stock functionality
 
 ## Tools
 
@@ -25,6 +23,7 @@ Immediate roadmap:
 - `get_company_profile` — sector, industry, market cap, P/E, beta, business summary, plus recent dividends and stock splits.
 - `get_analyst_data` — sell-side analyst consensus: price targets, consensus recommendation, and the recent rating trend (analyst counts over the last four months).
 - `search_symbols` — resolve a company or instrument name to ticker symbol(s), best match first, across all instrument types (equity, ETF, crypto, …).
+- `get_news` — recent news headlines for a ticker, newest first: title, publisher, link, publish time, and a short summary (no news returns an empty list, not an error).
 
 **Analytics**
 

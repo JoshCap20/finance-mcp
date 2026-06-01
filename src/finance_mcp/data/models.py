@@ -363,6 +363,35 @@ class AnalystData(BaseModel):
     )
 
 
+class NewsArticle(BaseModel):
+    """A single recent news item about a symbol, as surfaced by Yahoo Finance."""
+
+    title: str = Field(description="Headline text.")
+    publisher: str | None = Field(
+        default=None, description="Publisher display name, e.g. 'Yahoo Finance'; may be None."
+    )
+    link: str | None = Field(
+        default=None, description="Canonical article URL (else a click-through URL); may be None."
+    )
+    published: str | None = Field(
+        default=None,
+        description="Publish time as an ISO8601 UTC timestamp, e.g. '2026-05-31T11:44:34Z'; "
+        "may be None.",
+    )
+    summary: str | None = Field(
+        default=None, description="Short blurb summarizing the article; may be empty or None."
+    )
+
+
+class NewsResult(BaseModel):
+    """Recent news for a symbol, newest first."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    articles: list[NewsArticle] = Field(
+        description="Recent news articles, newest first; empty if no news is available."
+    )
+
+
 class SymbolMatch(BaseModel):
     """One search hit resolving a name/query to a tradable symbol."""
 

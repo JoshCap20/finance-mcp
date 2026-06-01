@@ -14,6 +14,7 @@ from tests.conftest import (
     make_client,
     make_financials_df,
     make_history_df,
+    make_news_item,
     make_recommendations_df,
     make_series,
 )
@@ -257,3 +258,51 @@ async def test_search_symbols_tool_surfaces_error() -> None:
         with pytest.raises(ToolError) as exc:
             await client.call_tool("search_symbols", {"query": "Apple"})
         assert "yahoo: search down" in str(exc.value)
+
+
+async def test_get_news_tool() -> None:
+    items = [
+        make_news_item(
+            "Apple hits record high",
+            publisher="Yahoo Finance",
+            link="https://finance.yahoo.com/news/a",
+            published="2026-05-31T11:44:34Z",
+            summary="Shares rally.",
+        ),
+        make_news_item(
+            "Analysts upgrade Apple",
+            publisher="Reuters",
+            link="https://finance.yahoo.com/news/b",
+            published="2026-05-30T09:00:00Z",
+        ),
+    ]
+    server = create_server(yf_client=make_client(factory=fake_ticker_factory(news=items)))
+    async with Client(server) as client:
+        names = {t.name for t in await client.list_tools()}
+        assert "get_news" in names
+        result = await client.call_tool("get_news", {"ticker": "AAPL"})
+        assert result.data.symbol == "AAPL"
+        assert [a.title for a in result.data.articles] == [
+            "Apple hits record high",
+            "Analysts upgrade Apple",
+        ]
+        assert result.data.articles[0].publisher == "Yahoo Finance"
+
+
+async def test_get_news_tool_empty_is_not_error() -> None:
+    server = create_server(yf_client=make_client(factory=fake_ticker_factory(news=[])))
+    async with Client(server) as client:
+        result = await client.call_tool("get_news", {"ticker": "ZZZZ"})
+        assert result.data.articles == []
+
+
+async def test_get_news_tool_surfaces_error() -> None:
+    server = create_server(
+        yf_client=make_client(
+            factory=fake_ticker_factory(news_error=RuntimeError("yahoo: news down"))
+        )
+    )
+    async with Client(server) as client:
+        with pytest.raises(ToolError) as exc:
+            await client.call_tool("get_news", {"ticker": "AAPL"})
+        assert "yahoo: news down" in str(exc.value)
