@@ -116,10 +116,7 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         Works for stocks, ETFs, and crypto. A symbol with no news (or an unknown symbol) returns an
         empty article list rather than an error.
         """
-        try:
-            return await asyncio.to_thread(client.get_news, ticker, count)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.get_news(ticker, count))
 
     @mcp.tool
     async def search_symbols(

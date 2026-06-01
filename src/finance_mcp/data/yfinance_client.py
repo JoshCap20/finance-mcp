@@ -407,13 +407,10 @@ class YFinanceClient:
             raise DataUnavailable(f"Failed to parse analyst data for '{symbol}': {exc}") from exc
 
     def get_news(self, symbol: str, count: int = 10) -> NewsResult:
-        return cast(
-            NewsResult,
-            self._cached(
-                ("news", symbol, str(count)),
-                self._history_ttl,
-                lambda: self._fetch_news(symbol, count),
-            ),
+        return self._cached(
+            ("news", symbol, str(count)),
+            self._history_ttl,
+            lambda: self._fetch_news(symbol, count),
         )
 
     def _fetch_news(self, symbol: str, count: int) -> NewsResult:
