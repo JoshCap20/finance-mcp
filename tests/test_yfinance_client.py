@@ -1082,13 +1082,13 @@ def test_get_analyst_data_parse_error_is_data_unavailable() -> None:
 
 
 def test_get_analyst_data_non_numeric_recommendation_mean_raises_data_unavailable() -> None:
-    # Yahoo occasionally returns a string label (e.g. "buy") instead of a float for
-    # recommendationMean.  float("buy") raises ValueError — that must surface as
-    # DataUnavailable, not a raw traceback.
+    # Defensive: in live data recommendationMean is always a float, but if the source
+    # ever returns a non-numeric value for it, float() raises ValueError — that must
+    # surface as DataUnavailable, not a raw traceback (matches _fetch_metrics).
     info = {
         "longName": "Apple Inc.",
         "currency": "USD",
-        "recommendationMean": "buy",  # non-numeric — float() will raise ValueError
+        "recommendationMean": "n/a",  # non-numeric — float() will raise ValueError
         "numberOfAnalystOpinions": 40,
     }
     client = make_client(factory=fake_ticker_factory(info=info))
@@ -1098,8 +1098,8 @@ def test_get_analyst_data_non_numeric_recommendation_mean_raises_data_unavailabl
 
 
 def test_get_analyst_data_non_numeric_target_price_raises_data_unavailable() -> None:
-    # Same class of bug: a non-numeric targetMeanPrice (e.g. a string) must surface
-    # as DataUnavailable, not a raw ValueError/TypeError.
+    # Same defensive guard for a target price: a non-numeric value must surface as
+    # DataUnavailable, not a raw ValueError/TypeError.
     info = {
         "longName": "Apple Inc.",
         "currency": "USD",
