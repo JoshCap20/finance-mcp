@@ -9,7 +9,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.transports import FastMCPTransport
 
-from finance_mcp.data.yfinance_client import YFinanceClient
+from finance_mcp.data.yfinance_client import _FINANCIALS_ATTR, YFinanceClient
 from finance_mcp.server import create_server
 
 
@@ -87,16 +87,9 @@ def fake_ticker_factory(
     financials_map = financials or {}
     # Records the ``count`` and ``tab`` the last get_news call received, for passthrough assertions.
     captured_news_count: dict[str, int | str] = {}
-    _FINANCIALS_ATTRS = frozenset(
-        {
-            "income_stmt",
-            "quarterly_income_stmt",
-            "balance_sheet",
-            "quarterly_balance_sheet",
-            "cashflow",
-            "quarterly_cashflow",
-        }
-    )
+    # Derive the recognised financials attributes from the production mapping (SSOT),
+    # so a new statement/period in the client can't silently diverge from this stub.
+    _FINANCIALS_ATTRS = frozenset(_FINANCIALS_ATTR.values())
 
     class _Ticker:
         @property

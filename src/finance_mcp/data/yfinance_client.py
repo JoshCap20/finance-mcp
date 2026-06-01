@@ -74,20 +74,42 @@ class YFinanceClient:
         self._max_bars = max_bars
         self._cache: dict[tuple[str, ...], tuple[float, Any]] = {}
 
-    def _cached(self, key: tuple[str, ...], ttl: float, fetch: Callable[[], Any]) -> Any:
+    def _cached[T](self, key: tuple[str, ...], ttl: float, fetch: Callable[[], T]) -> T:
         hit = self._cache.get(key)
         now = self._now()
         if hit is not None and now - hit[0] < ttl:
-            return hit[1]
+            # The cache is heterogeneous (Any value); the key space guarantees each key
+            # always maps to the same T, so this single cast is the only one needed.
+            return cast(T, hit[1])
         value = fetch()
         self._cache[key] = (now, value)
         return value
+
+    def _ticker_with_info(
+        self, symbol: str, fetch_label: str, kind: str
+    ) -> tuple[Any, dict[str, Any]]:
+        """Fetch a ticker and its ``.info``, asserting the symbol names a real instrument.
+
+        Shared by the profile/metrics/analyst fetchers. A yfinance-typed error becomes
+        DataUnavailable; any other access error, or an ``info`` dict with no longName/
+        shortName (Yahoo's tell for an unknown symbol), becomes SymbolNotFound.
+        """
+        ticker = self._ticker(symbol)
+        try:
+            info = ticker.info
+        except YFException as exc:
+            raise DataUnavailable(f"Failed to fetch {fetch_label} for '{symbol}': {exc}") from exc
+        except Exception as exc:  # raw leak for symbols with no data
+            raise SymbolNotFound(_no_data_msg(kind, symbol)) from exc
+        if not info or not (info.get("longName") or info.get("shortName")):
+            raise SymbolNotFound(_no_data_msg(kind, symbol))
+        return ticker, info
 
     def get_quote(self, symbols: list[str]) -> list[Quote]:
         def fetch(sym: str) -> Callable[[], Quote]:
             return lambda: self._fetch_quote(sym)
 
-        return [cast(Quote, self._cached(("quote", s), self._quote_ttl, fetch(s))) for s in symbols]
+        return [self._cached(("quote", s), self._quote_ttl, fetch(s)) for s in symbols]
 
     def _fetch_quote(self, symbol: str) -> Quote:
         try:
@@ -106,13 +128,9 @@ class YFinanceClient:
             raise DataUnavailable(f"Failed to fetch quote for '{symbol}': {exc}") from exc
         except Exception as exc:
             # fast_info leaks raw errors (e.g. KeyError) for symbols with no data.
-            raise SymbolNotFound(
-                f"No quote data for '{symbol}'. The symbol may be invalid or delisted."
-            ) from exc
+            raise SymbolNotFound(_no_data_msg("quote", symbol)) from exc
         if price is None:
-            raise SymbolNotFound(
-                f"No quote data for '{symbol}'. The symbol may be invalid or delisted."
-            )
+            raise SymbolNotFound(_no_data_msg("quote", symbol))
         change = (price - prev) if prev is not None else None
         change_pct = (change / prev * 100.0) if (change is not None and prev) else None
         return Quote(
@@ -131,13 +149,10 @@ class YFinanceClient:
         )
 
     def get_price_history(self, symbol: str, period: str, interval: str) -> PriceHistory:
-        return cast(
-            PriceHistory,
-            self._cached(
-                ("history", symbol, period, interval),
-                self._history_ttl,
-                lambda: self._fetch_history(symbol, period, interval),
-            ),
+        return self._cached(
+            ("history", symbol, period, interval),
+            self._history_ttl,
+            lambda: self._fetch_history(symbol, period, interval),
         )
 
     def _fetch_all_bars(self, symbol: str, period: str, interval: str) -> list[PriceBar]:
@@ -203,13 +218,10 @@ class YFinanceClient:
         )
 
     def analyze_performance(self, symbol: str, period: str) -> PerformanceStats:
-        return cast(
-            PerformanceStats,
-            self._cached(
-                ("performance", symbol, period),
-                self._history_ttl,
-                lambda: self._compute_performance(symbol, period),
-            ),
+        return self._cached(
+            ("performance", symbol, period),
+            self._history_ttl,
+            lambda: self._compute_performance(symbol, period),
         )
 
     def _compute_performance(self, symbol: str, period: str) -> PerformanceStats:
@@ -240,13 +252,10 @@ class YFinanceClient:
         period: StatementPeriod,
         line_items: list[str] | None = None,
     ) -> FinancialStatement:
-        full = cast(
-            FinancialStatement,
-            self._cached(
-                ("financials", symbol, statement, period),
-                self._fundamentals_ttl,
-                lambda: self._fetch_financials(symbol, statement, period),
-            ),
+        full = self._cached(
+            ("financials", symbol, statement, period),
+            self._fundamentals_ttl,
+            lambda: self._fetch_financials(symbol, statement, period),
         )
         if line_items is None:
             return full
@@ -289,29 +298,12 @@ class YFinanceClient:
             ) from exc
 
     def get_company_profile(self, symbol: str) -> CompanyProfile:
-        return cast(
-            CompanyProfile,
-            self._cached(
-                ("profile", symbol), self._fundamentals_ttl, lambda: self._fetch_profile(symbol)
-            ),
+        return self._cached(
+            ("profile", symbol), self._fundamentals_ttl, lambda: self._fetch_profile(symbol)
         )
 
     def _fetch_profile(self, symbol: str) -> CompanyProfile:
-        try:
-            ticker = self._ticker(symbol)
-            info = ticker.info
-            dividends = ticker.dividends
-            splits = ticker.splits
-        except YFException as exc:
-            raise DataUnavailable(f"Failed to fetch profile for '{symbol}': {exc}") from exc
-        except Exception as exc:  # fast_info-style raw leak for symbols with no data
-            raise SymbolNotFound(
-                f"No profile data for '{symbol}'. The symbol may be invalid or delisted."
-            ) from exc
-        if not info or not (info.get("longName") or info.get("shortName")):
-            raise SymbolNotFound(
-                f"No profile data for '{symbol}'. The symbol may be invalid or delisted."
-            )
+        ticker, info = self._ticker_with_info(symbol, "profile", "profile")
         try:
             return CompanyProfile(
                 symbol=symbol,
@@ -328,33 +320,19 @@ class YFinanceClient:
                 forward_pe=_opt(info.get("forwardPE")),
                 dividend_yield=_opt(info.get("dividendYield")),
                 beta=_opt(info.get("beta")),
-                recent_dividends=_dividend_events(dividends, limit=8),
-                splits=_split_events(splits),
+                recent_dividends=_dividend_events(ticker.dividends, limit=8),
+                splits=_split_events(ticker.splits),
             )
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse profile for '{symbol}': {exc}") from exc
 
     def get_key_metrics(self, symbol: str) -> KeyMetrics:
-        return cast(
-            KeyMetrics,
-            self._cached(
-                ("metrics", symbol), self._fundamentals_ttl, lambda: self._fetch_metrics(symbol)
-            ),
+        return self._cached(
+            ("metrics", symbol), self._fundamentals_ttl, lambda: self._fetch_metrics(symbol)
         )
 
     def _fetch_metrics(self, symbol: str) -> KeyMetrics:
-        try:
-            info = self._ticker(symbol).info
-        except YFException as exc:
-            raise DataUnavailable(f"Failed to fetch metrics for '{symbol}': {exc}") from exc
-        except Exception as exc:  # raw leak for symbols with no data
-            raise SymbolNotFound(
-                f"No metrics data for '{symbol}'. The symbol may be invalid or delisted."
-            ) from exc
-        if not info or not (info.get("longName") or info.get("shortName")):
-            raise SymbolNotFound(
-                f"No metrics data for '{symbol}'. The symbol may be invalid or delisted."
-            )
+        _, info = self._ticker_with_info(symbol, "metrics", "metrics")
         try:
             return KeyMetrics(
                 symbol=symbol,
@@ -388,30 +366,14 @@ class YFinanceClient:
             raise DataUnavailable(f"Failed to parse metrics for '{symbol}': {exc}") from exc
 
     def get_analyst_data(self, symbol: str) -> AnalystData:
-        return cast(
-            AnalystData,
-            self._cached(
-                ("analyst", symbol),
-                self._fundamentals_ttl,
-                lambda: self._fetch_analyst(symbol),
-            ),
+        return self._cached(
+            ("analyst", symbol),
+            self._fundamentals_ttl,
+            lambda: self._fetch_analyst(symbol),
         )
 
     def _fetch_analyst(self, symbol: str) -> AnalystData:
-        try:
-            ticker = self._ticker(symbol)
-            info = ticker.info
-            recommendations = ticker.recommendations
-        except YFException as exc:
-            raise DataUnavailable(f"Failed to fetch analyst data for '{symbol}': {exc}") from exc
-        except Exception as exc:  # raw leak for symbols with no data
-            raise SymbolNotFound(
-                f"No analyst data for '{symbol}'. The symbol may be invalid or delisted."
-            ) from exc
-        if not info or not (info.get("longName") or info.get("shortName")):
-            raise SymbolNotFound(
-                f"No analyst data for '{symbol}'. The symbol may be invalid or delisted."
-            )
+        ticker, info = self._ticker_with_info(symbol, "analyst data", "analyst")
         try:
             mean = _opt(info.get("recommendationMean"))
             analysts = _opt_int(info.get("numberOfAnalystOpinions"))
@@ -439,7 +401,7 @@ class YFinanceClient:
                 target_median_price=target_median,
                 target_high_price=target_high,
                 target_low_price=target_low,
-                recommendation_trend=_recommendation_trend(recommendations),
+                recommendation_trend=_recommendation_trend(ticker.recommendations),
             )
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse analyst data for '{symbol}': {exc}") from exc
@@ -470,13 +432,10 @@ class YFinanceClient:
             raise DataUnavailable(f"Failed to parse news for '{symbol}': {exc}") from exc
 
     def search_symbols(self, query: str, max_results: int = 8) -> SymbolSearchResult:
-        return cast(
-            SymbolSearchResult,
-            self._cached(
-                ("search", query, str(max_results)),
-                self._fundamentals_ttl,
-                lambda: self._fetch_search(query, max_results),
-            ),
+        return self._cached(
+            ("search", query, str(max_results)),
+            self._fundamentals_ttl,
+            lambda: self._fetch_search(query, max_results),
         )
 
     def _fetch_search(self, query: str, max_results: int) -> SymbolSearchResult:
@@ -492,6 +451,11 @@ class YFinanceClient:
             return SymbolSearchResult(query=query, matches=matches)
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse search results for '{query}': {exc}") from exc
+
+
+def _no_data_msg(kind: str, symbol: str) -> str:
+    """Single source of truth for the 'symbol has no usable data' message."""
+    return f"No {kind} data for '{symbol}'. The symbol may be invalid or delisted."
 
 
 def _recommendation_trend(df: Any) -> list[RecommendationPeriod]:
