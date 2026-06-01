@@ -158,14 +158,10 @@ def fake_search_factory(
     ``quotes or []``.
     """
 
-    class _SearchResult:
-        def __init__(self, q: str) -> None:
-            self.quotes: list[dict[str, Any]] = quotes or []
-
     def _search(query: str, **kwargs: Any) -> Any:
         if error is not None:
             raise error
-        return _SearchResult(query)
+        return SimpleNamespace(quotes=quotes or [])
 
     return _search
 
