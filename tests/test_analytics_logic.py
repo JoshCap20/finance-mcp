@@ -63,3 +63,9 @@ def test_max_drawdown_needs_one() -> None:
 def test_sma() -> None:
     assert sma(SERIES, 2) == pytest.approx(104.5)  # (110+99)/2
     assert sma(SERIES, 5) is None
+
+
+def test_max_drawdown_uses_running_peak() -> None:
+    # Peak 120 (bar 1), trough 90 (bar 2), recovers to 130 (last bar):
+    # running-peak gives -25% (120->90); a naive first-to-min would wrongly give -10%.
+    assert max_drawdown([100.0, 120.0, 90.0, 130.0]) == pytest.approx(-25.0)

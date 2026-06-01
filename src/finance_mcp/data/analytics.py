@@ -1,4 +1,7 @@
-"""Pure return/risk math over a series of closing prices. No MCP/network imports."""
+"""Pure return/risk math over a series of closing prices. No MCP/network imports.
+
+Assumes strictly positive closes (real adjusted prices); a zero close would divide by zero.
+"""
 
 import math
 import statistics
