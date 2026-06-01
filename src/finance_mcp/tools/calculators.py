@@ -3,11 +3,9 @@
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from finance_mcp.data import calculators
-from finance_mcp.data.errors import InvalidInput
 from finance_mcp.data.models import (
     BondAnalytics,
     BondYTM,
@@ -22,6 +20,7 @@ from finance_mcp.data.models import (
     TVMResult,
     TVMVariable,
 )
+from finance_mcp.tools._dispatch import run_calc
 
 
 def register(mcp: FastMCP) -> None:
@@ -67,12 +66,11 @@ def register(mcp: FastMCP) -> None:
         between two values with no interim payments (solve_for='rate', pmt=0). Use
         when='begin' for begin-of-period (annuity-due) payments.
         """
-        try:
-            return calculators.time_value_of_money(
+        return run_calc(
+            lambda: calculators.time_value_of_money(
                 solve_for=solve_for, pv=pv, fv=fv, pmt=pmt, rate=rate, nper=nper, when=when
             )
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        )
 
     @mcp.tool
     def bond_price(
@@ -91,16 +89,15 @@ def register(mcp: FastMCP) -> None:
         ] = 2,
     ) -> BondAnalytics:
         """Price a fixed-coupon bond at a given yield, with duration and convexity."""
-        try:
-            return calculators.bond_price(
+        return run_calc(
+            lambda: calculators.bond_price(
                 face=face,
                 coupon_rate=coupon_rate,
                 years_to_maturity=years_to_maturity,
                 ytm=ytm,
                 frequency=frequency,
             )
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        )
 
     @mcp.tool
     def bond_ytm(
@@ -116,16 +113,15 @@ def register(mcp: FastMCP) -> None:
         ] = 2,
     ) -> BondYTM:
         """Solve the annual yield to maturity that prices the bond at the given market price."""
-        try:
-            return calculators.bond_ytm(
+        return run_calc(
+            lambda: calculators.bond_ytm(
                 face=face,
                 coupon_rate=coupon_rate,
                 years_to_maturity=years_to_maturity,
                 price=price,
                 frequency=frequency,
             )
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        )
 
     @mcp.tool
     def loan_schedule(
@@ -178,10 +174,7 @@ def register(mcp: FastMCP) -> None:
         ],
     ) -> NPVResult:
         """Net present value of equally-spaced cashflows (cashflows[0] is at t=0, undiscounted)."""
-        try:
-            return calculators.npv(rate, cashflows)
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        return run_calc(lambda: calculators.npv(rate, cashflows))
 
     @mcp.tool
     def irr(
@@ -195,10 +188,7 @@ def register(mcp: FastMCP) -> None:
         Non-conventional flows can have multiple IRRs (see all_irrs/is_unique); use
         mirr for a single unambiguous figure.
         """
-        try:
-            return calculators.irr(cashflows)
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        return run_calc(lambda: calculators.irr(cashflows))
 
     @mcp.tool
     def mirr(
@@ -219,10 +209,7 @@ def register(mcp: FastMCP) -> None:
         The preferred figure for non-conventional cashflows (more than one sign change),
         since it has exactly one solution given the finance and reinvestment rates.
         """
-        try:
-            return calculators.mirr(cashflows, finance_rate, reinvest_rate)
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        return run_calc(lambda: calculators.mirr(cashflows, finance_rate, reinvest_rate))
 
     @mcp.tool
     def xnpv(
@@ -236,10 +223,7 @@ def register(mcp: FastMCP) -> None:
 
         Actual/365 day count (matches Excel XNPV); base date is the earliest cashflow.
         """
-        try:
-            return calculators.xnpv(rate, cashflows)
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        return run_calc(lambda: calculators.xnpv(rate, cashflows))
 
     @mcp.tool
     def xirr(
@@ -254,10 +238,7 @@ def register(mcp: FastMCP) -> None:
 
         Actual/365 day count (matches Excel XIRR); base date is the earliest cashflow.
         """
-        try:
-            return calculators.xirr(cashflows)
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        return run_calc(lambda: calculators.xirr(cashflows))
 
     @mcp.tool
     def convert_rate(
@@ -282,7 +263,6 @@ def register(mcp: FastMCP) -> None:
         Discrete uses periods_per_year (e.g. 12 = monthly); continuous ignores it
         (EAR = e^nominal - 1; nominal = ln(1 + EAR)).
         """
-        try:
-            return calculators.convert_rate(rate, periods_per_year, direction, compounding)
-        except InvalidInput as exc:
-            raise ToolError(str(exc)) from exc
+        return run_calc(
+            lambda: calculators.convert_rate(rate, periods_per_year, direction, compounding)
+        )
