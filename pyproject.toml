@@ -4,13 +4,43 @@ version = "0.1.2"
 description = "An MCP server providing finance tools: a yfinance wrapper, computed analytics, and financial calculators."
 readme = "README.md"
 requires-python = ">=3.13"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Josh Caponigro" }]
+maintainers = [{ name = "Josh Caponigro" }]
+keywords = [
+  "mcp",
+  "model-context-protocol",
+  "fastmcp",
+  "finance",
+  "yfinance",
+  "stocks",
+  "market-data",
+  "financial-analytics",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business :: Financial",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Typing :: Typed",
+]
 dependencies = [
   "fastmcp>=3.0",
   "pydantic>=2.7",
   "pydantic-settings>=2.0",
   "yfinance>=0.2.40",
 ]
+
+[project.urls]
+Homepage = "https://github.com/JoshCap20/finance-mcp"
+Repository = "https://github.com/JoshCap20/finance-mcp"
+Issues = "https://github.com/JoshCap20/finance-mcp/issues"
 
 [project.scripts]
 mcp-finance = "finance_mcp.server:main"

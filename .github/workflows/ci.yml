@@ -9,6 +9,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default GITHUB_TOKEN: the quality gate only needs to read the repo.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
