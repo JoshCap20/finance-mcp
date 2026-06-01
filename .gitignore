@@ -2,6 +2,9 @@
 docs/
 CLAUDE.md
 
+# Local-only editor config (project type checker is mypy, not pyright)
+pyrightconfig.json
+
 # Python
 __pycache__/
 *.py[cod]

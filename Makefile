@@ -1,4 +1,4 @@
-.PHONY: install test lint format typecheck security check build run
+.PHONY: install test lint format typecheck security check build run clean
 
 install:
 	uv sync
@@ -8,6 +8,7 @@ test:
 
 lint:
 	uv run ruff check .
+	uv run ruff format --check .
 
 format:
 	uv run ruff format .
@@ -25,3 +26,7 @@ build:
 
 run:
 	uv run finance-mcp
+
+clean:
+	rm -rf .coverage .mypy_cache .pytest_cache .ruff_cache htmlcov dist build
+	find . -type d -name '__pycache__' -prune -exec rm -rf {} +
