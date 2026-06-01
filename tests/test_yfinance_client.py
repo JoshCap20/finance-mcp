@@ -14,6 +14,7 @@ from finance_mcp.data.models import (
     DividendEvent,
     FinancialStatement,
     KeyMetrics,
+    NewsResult,
     PerformanceStats,
     PriceBar,
     PriceHistory,
@@ -30,6 +31,7 @@ from tests.conftest import (
     make_client,
     make_financials_df,
     make_history_df,
+    make_news_item,
     make_recommendations_df,
     make_series,
 )
@@ -1264,3 +1266,170 @@ def test_search_symbols_parse_error_is_data_unavailable() -> None:
     with pytest.raises(DataUnavailable) as exc:
         client.search_symbols("apple")
     assert "Failed to parse search results for 'apple'" in str(exc.value)
+
+
+def _news_client(**kw: Any) -> YFinanceClient:
+    factory = kw.pop("factory")
+    return YFinanceClient(
+        ticker_factory=factory,
+        time_fn=kw.pop("clock", FakeClock()),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+
+
+NEWS_ITEMS = [
+    make_news_item(
+        "Apple hits record high",
+        publisher="Yahoo Finance",
+        link="https://finance.yahoo.com/news/a",
+        published="2026-05-31T11:44:34Z",
+        summary="Shares rally.",
+    ),
+    make_news_item(
+        "Analysts upgrade Apple",
+        publisher="Reuters",
+        link="https://finance.yahoo.com/news/b",
+        published="2026-05-30T09:00:00Z",
+        summary="Upgrade to buy.",
+    ),
+    make_news_item(
+        "Apple supplier news",
+        publisher="Bloomberg",
+        link="https://finance.yahoo.com/news/c",
+        published="2026-05-29T08:00:00Z",
+        summary="Supplier ramps output.",
+    ),
+]
+
+
+def test_get_news_happy_path_maps_fields_newest_first() -> None:
+    client = _news_client(factory=fake_ticker_factory(news=NEWS_ITEMS))
+    result = client.get_news("AAPL")
+    assert isinstance(result, NewsResult)
+    assert result.symbol == "AAPL"
+    assert [a.title for a in result.articles] == [
+        "Apple hits record high",
+        "Analysts upgrade Apple",
+        "Apple supplier news",
+    ]
+    first = result.articles[0]
+    assert first.publisher == "Yahoo Finance"
+    assert first.link == "https://finance.yahoo.com/news/a"
+    assert first.published == "2026-05-31T11:44:34Z"
+    assert first.summary == "Shares rally."
+
+
+def test_get_news_empty_returns_empty_no_raise() -> None:
+    client = _news_client(factory=fake_ticker_factory(news=[]))
+    result = client.get_news("ZZZZ")
+    assert result.symbol == "ZZZZ" and result.articles == []
+
+
+def test_get_news_typed_error_is_data_unavailable() -> None:
+    client = _news_client(factory=fake_ticker_factory(news_error=YFException("rate limited")))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_news("AAPL")
+    assert "rate limited" in str(exc.value)
+    assert type(exc.value) is DataUnavailable  # never SymbolNotFound
+
+
+def test_get_news_raw_error_is_data_unavailable() -> None:
+    client = _news_client(factory=fake_ticker_factory(news_error=RuntimeError("boom")))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_news("AAPL")
+    assert "boom" in str(exc.value)
+    assert type(exc.value) is DataUnavailable
+
+
+def test_get_news_skips_item_without_title() -> None:
+    items = [
+        NEWS_ITEMS[0],
+        make_news_item(None, publisher="Reuters", link="https://x"),
+        NEWS_ITEMS[1],
+    ]
+    client = _news_client(factory=fake_ticker_factory(news=items))
+    result = client.get_news("AAPL")
+    assert [a.title for a in result.articles] == [
+        "Apple hits record high",
+        "Analysts upgrade Apple",
+    ]
+
+
+def test_get_news_null_nested_keys_yield_none() -> None:
+    item = make_news_item(
+        "Title only",
+        published="2026-05-31T00:00:00Z",
+        summary="",
+        omit_provider=True,
+        omit_canonical=True,
+    )
+    client = _news_client(factory=fake_ticker_factory(news=[item]))
+    [article] = client.get_news("AAPL").articles
+    assert article.title == "Title only"
+    assert article.publisher is None
+    assert article.link is None
+    assert article.summary is None  # "" coerced to None
+    assert article.published == "2026-05-31T00:00:00Z"
+
+
+def test_get_news_none_provider_and_canonical_yield_none() -> None:
+    # provider/canonicalUrl present but explicitly None (a shape yfinance can return).
+    item = make_news_item("Title", publisher=None, link=None)
+    client = _news_client(factory=fake_ticker_factory(news=[item]))
+    [article] = client.get_news("AAPL").articles
+    assert article.publisher is None and article.link is None
+
+
+def test_get_news_click_through_fallback_link() -> None:
+    item = make_news_item(
+        "Title",
+        published="2026-05-31T00:00:00Z",
+        omit_canonical=True,
+        click_through="https://fallback.example/x",
+    )
+    client = _news_client(factory=fake_ticker_factory(news=[item]))
+    [article] = client.get_news("AAPL").articles
+    assert article.link == "https://fallback.example/x"
+
+
+def test_get_news_passes_count_to_source() -> None:
+    factory = fake_ticker_factory(news=NEWS_ITEMS)
+    client = _news_client(factory=factory)
+    result = client.get_news("AAPL", count=2)
+    assert factory.captured_news_count["count"] == 2  # type: ignore[attr-defined]
+    assert len(result.articles) == 2  # fake honors count by slicing
+
+
+def test_get_news_parse_error_is_data_unavailable() -> None:
+    # A truthy but non-string title survives the title guard yet fails NewsArticle
+    # validation (title: str), forcing the parse-stage error path.
+    item = {"id": "x", "content": {"title": 123}}
+    client = _news_client(factory=fake_ticker_factory(news=[item]))
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_news("AAPL")
+    assert "Failed to parse news for 'AAPL'" in str(exc.value)
+
+
+def test_get_news_caches_within_ttl_and_expires() -> None:
+    calls = {"n": 0}
+
+    def counting(symbol: str) -> Any:
+        calls["n"] += 1
+        return fake_ticker_factory(news=NEWS_ITEMS)(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=clock,
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.get_news("AAPL")
+    client.get_news("AAPL")
+    assert calls["n"] == 1  # cached within history_ttl
+    clock.advance(301.0)
+    client.get_news("AAPL")
+    assert calls["n"] == 2  # expired after history_ttl

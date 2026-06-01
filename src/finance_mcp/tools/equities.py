@@ -14,6 +14,7 @@ from finance_mcp.data.models import (
     FinancialStatement,
     HistoryInterval,
     HistoryPeriod,
+    NewsResult,
     PriceHistory,
     Quote,
     Statement,
@@ -118,6 +119,24 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         """
         try:
             return await asyncio.to_thread(client.get_analyst_data, ticker)
+        except DataUnavailable as exc:
+            raise ToolError(str(exc)) from exc
+
+    @mcp.tool
+    async def get_news(
+        ticker: Annotated[str, Field(description="Ticker symbol, e.g. 'AAPL'.")],
+        count: Annotated[
+            int, Field(ge=1, le=50, description="Maximum number of articles to return.")
+        ] = 10,
+    ) -> NewsResult:
+        """Recent news headlines for a symbol, newest first.
+
+        Each article has a title, publisher, link, publish time (ISO8601 UTC), and a short summary.
+        Works for stocks, ETFs, and crypto. A symbol with no news (or an unknown symbol) returns an
+        empty article list rather than an error.
+        """
+        try:
+            return await asyncio.to_thread(client.get_news, ticker, count)
         except DataUnavailable as exc:
             raise ToolError(str(exc)) from exc
 
