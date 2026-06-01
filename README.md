@@ -6,8 +6,18 @@ financial calculators. (Computed analytics and analysis prompts are planned.)
 Immediate roadmap:
 
 1. Additional yfinance wrappers - financial statements, news, etc.
-2. Public free data requiring keys - add optional extensions for fed data for interest rates, etc.
-3. Portfolio tools - add tools for portfolio analysis to extend specific stock functionality
+
+- get_analyst_data (recommendations, price targets, estimates)
+- search_symbols (resolve a company name to a ticker)
+
+2. Computed analytics
+
+- get_key_metrics (P/E, EV/EBITDA, margins, ROE, FCF yield from financials+quote)
+- analyze_performance (return, volatility, max drawdown from price history)
+
+3. analyze_stock + compare_stocks — user-invoked slash commands that orchestrate the existing 14 tools into a methodology
+4. Public free data requiring keys - add optional extensions for fed data for interest rates, etc.
+5. Portfolio tools - add tools for portfolio analysis to extend specific stock functionality
 
 ## Tools
 
