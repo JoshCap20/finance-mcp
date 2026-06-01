@@ -71,6 +71,9 @@ def fake_ticker_factory(
     recommendations: pd.DataFrame | None = None,
     news: list[dict[str, Any]] | None = None,
     news_error: Exception | None = None,
+    dividends_error: Exception | None = None,
+    splits_error: Exception | None = None,
+    recommendations_error: Exception | None = None,
 ) -> Callable[[str], Any]:
     """Build a ticker factory returning a stub Ticker for any symbol.
 
@@ -111,14 +114,20 @@ def fake_ticker_factory(
 
         @property
         def dividends(self) -> Any:
+            if dividends_error is not None:
+                raise dividends_error
             return dividends if dividends is not None else pd.Series(dtype=float)
 
         @property
         def splits(self) -> Any:
+            if splits_error is not None:
+                raise splits_error
             return splits if splits is not None else pd.Series(dtype=float)
 
         @property
         def recommendations(self) -> Any:
+            if recommendations_error is not None:
+                raise recommendations_error
             return recommendations if recommendations is not None else pd.DataFrame()
 
         def get_news(self, count: int = 10, tab: str = "news") -> list[dict[str, Any]]:

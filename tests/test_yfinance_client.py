@@ -151,6 +151,23 @@ def test_get_quote_caches_within_ttl() -> None:
     assert calls["n"] == 2
 
 
+def test_get_quote_cache_expires_exactly_at_ttl() -> None:
+    # The cache hit test is `now - hit[0] < ttl`, so a sample taken exactly `ttl` later
+    # is a MISS. Pins the strict inequality (a flip to `<=` would extend staleness).
+    calls = {"n": 0}
+
+    def counting_factory(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(fast_info=QUOTE_FI)(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(ticker_factory=counting_factory, time_fn=clock, quote_ttl=30.0)
+    client.get_quote(["AAPL"])
+    clock.advance(30.0)  # exactly at the TTL boundary -> not strictly within -> refetch
+    client.get_quote(["AAPL"])
+    assert calls["n"] == 2
+
+
 def test_get_quote_missing_price_raises_symbol_not_found() -> None:
     client = _client(factory=fake_ticker_factory(fast_info={"last_price": None}))
     with pytest.raises(SymbolNotFound):
@@ -539,6 +556,29 @@ def test_get_company_profile_parse_error_is_data_unavailable() -> None:
     with pytest.raises(DataUnavailable) as exc:
         client.get_company_profile("AAPL")
     assert "AAPL" in str(exc.value)
+
+
+def test_get_company_profile_dividends_read_error_is_data_unavailable() -> None:
+    # .info already identified the instrument, so a failing dividends READ is a data
+    # availability issue (DataUnavailable), NOT SymbolNotFound. Guards the refactor that
+    # moved this read out of the SymbolNotFound try block.
+    client = _profile_client(
+        factory=fake_ticker_factory(info=FULL_INFO, dividends_error=YFException("divs down"))
+    )
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_company_profile("AAPL")
+    assert type(exc.value) is DataUnavailable  # not the SymbolNotFound subclass
+    assert "divs down" in str(exc.value)
+
+
+def test_get_company_profile_splits_read_error_is_data_unavailable() -> None:
+    client = _profile_client(
+        factory=fake_ticker_factory(info=FULL_INFO, splits_error=YFException("splits down"))
+    )
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_company_profile("AAPL")
+    assert type(exc.value) is DataUnavailable
+    assert "splits down" in str(exc.value)
 
 
 def test_get_financials_filter_reuses_cached_fetch() -> None:
@@ -1081,6 +1121,19 @@ def test_get_analyst_data_parse_error_is_data_unavailable() -> None:
     with pytest.raises(DataUnavailable) as exc:
         client.get_analyst_data("AAPL")
     assert "Failed to parse analyst data for 'AAPL'" in str(exc.value)
+
+
+def test_get_analyst_data_recommendations_read_error_is_data_unavailable() -> None:
+    # A failing recommendations READ (after .info identified coverage) surfaces as
+    # DataUnavailable, not SymbolNotFound — guards the refactor that moved this read.
+    info = {"longName": "Apple Inc.", "currency": "USD", "numberOfAnalystOpinions": 40}
+    client = make_client(
+        factory=fake_ticker_factory(info=info, recommendations_error=YFException("recs down"))
+    )
+    with pytest.raises(DataUnavailable) as exc:
+        client.get_analyst_data("AAPL")
+    assert type(exc.value) is DataUnavailable
+    assert "recs down" in str(exc.value)
 
 
 def test_get_analyst_data_non_numeric_recommendation_mean_raises_data_unavailable() -> None:
