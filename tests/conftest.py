@@ -34,7 +34,7 @@ class FakeClock:
 
 
 def make_history_df(closes: list[float]) -> pd.DataFrame:
-    idx = pd.to_datetime([f"2024-01-{i + 1:02d}" for i in range(len(closes))])
+    idx = pd.to_datetime(pd.date_range("2024-01-01", periods=len(closes), freq="D"))
     return pd.DataFrame(
         {
             "Open": closes,

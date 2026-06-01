@@ -13,12 +13,14 @@ from typing import Any, Literal, cast
 import yfinance as yf
 from yfinance.exceptions import YFException
 
+from finance_mcp.data import analytics
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
 from finance_mcp.data.models import (
     CompanyProfile,
     DividendEvent,
     FinancialStatement,
     KeyMetrics,
+    PerformanceStats,
     PriceBar,
     PriceHistory,
     PriceSummary,
@@ -124,7 +126,8 @@ class YFinanceClient:
             ),
         )
 
-    def _fetch_history(self, symbol: str, period: str, interval: str) -> PriceHistory:
+    def _fetch_all_bars(self, symbol: str, period: str, interval: str) -> list[PriceBar]:
+        """Fetch and parse the FULL (untruncated) OHLCV bars, dropping non-finite rows."""
         try:
             df = self._ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
         except Exception as exc:  # surface any yfinance failure verbatim
@@ -154,34 +157,67 @@ class YFinanceClient:
                 raise SymbolNotFound(
                     f"No price history for '{symbol}'. Check the symbol/period/interval."
                 )
-            start_close = all_bars[0].close
-            total_return = (
-                ((all_bars[-1].close / start_close - 1.0) * 100.0) if start_close else 0.0
-            )
-            summary = PriceSummary(
-                start_date=all_bars[0].date,
-                end_date=all_bars[-1].date,
-                start_close=start_close,
-                end_close=all_bars[-1].close,
-                total_return_percent=total_return,
-                period_high=max(b.high for b in all_bars),
-                period_low=min(b.low for b in all_bars),
-                bars=len(all_bars),
-            )
-            truncated = len(all_bars) > self._max_bars
-            bars = all_bars[-self._max_bars :] if truncated else all_bars
-            return PriceHistory(
-                symbol=symbol,
-                period=period,
-                interval=interval,
-                bars=bars,
-                summary=summary,
-                truncated=truncated,
-            )
+            return all_bars
         except SymbolNotFound:
             raise
         except Exception as exc:  # surface any parsing failure verbatim
             raise DataUnavailable(f"Failed to parse history for '{symbol}': {exc}") from exc
+
+    def _fetch_history(self, symbol: str, period: str, interval: str) -> PriceHistory:
+        all_bars = self._fetch_all_bars(symbol, period, interval)
+        start_close = all_bars[0].close
+        total_return = ((all_bars[-1].close / start_close - 1.0) * 100.0) if start_close else 0.0
+        summary = PriceSummary(
+            start_date=all_bars[0].date,
+            end_date=all_bars[-1].date,
+            start_close=start_close,
+            end_close=all_bars[-1].close,
+            total_return_percent=total_return,
+            period_high=max(b.high for b in all_bars),
+            period_low=min(b.low for b in all_bars),
+            bars=len(all_bars),
+        )
+        truncated = len(all_bars) > self._max_bars
+        bars = all_bars[-self._max_bars :] if truncated else all_bars
+        return PriceHistory(
+            symbol=symbol,
+            period=period,
+            interval=interval,
+            bars=bars,
+            summary=summary,
+            truncated=truncated,
+        )
+
+    def analyze_performance(self, symbol: str, period: str) -> PerformanceStats:
+        return cast(
+            PerformanceStats,
+            self._cached(
+                ("performance", symbol, period),
+                self._history_ttl,
+                lambda: self._compute_performance(symbol, period),
+            ),
+        )
+
+    def _compute_performance(self, symbol: str, period: str) -> PerformanceStats:
+        bars = self._fetch_all_bars(symbol, period, "1d")
+        if len(bars) < 2:
+            raise DataUnavailable(
+                f"Not enough price history to compute performance for '{symbol}'."
+            )
+        closes = [b.close for b in bars]
+        return PerformanceStats(
+            symbol=symbol,
+            period=period,
+            bars=len(bars),
+            start_date=bars[0].date,
+            end_date=bars[-1].date,
+            total_return_percent=analytics.total_return(closes),
+            annualized_return_percent=analytics.annualized_return(closes),
+            annualized_volatility_percent=analytics.annualized_volatility(closes),
+            max_drawdown_percent=analytics.max_drawdown(closes),
+            sma_50=analytics.sma(closes, 50),
+            sma_200=analytics.sma(closes, 200),
+        )
 
     def get_financials(
         self,

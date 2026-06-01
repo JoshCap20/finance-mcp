@@ -6,12 +6,14 @@ import pandas as pd
 import pytest
 from yfinance.exceptions import YFException
 
+from finance_mcp.data import analytics
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
 from finance_mcp.data.models import (
     CompanyProfile,
     DividendEvent,
     FinancialStatement,
     KeyMetrics,
+    PerformanceStats,
     PriceBar,
     PriceHistory,
     PriceSummary,
@@ -819,4 +821,72 @@ def test_get_key_metrics_caches_within_ttl() -> None:
     assert calls["n"] == 1
     clock.advance(3601.0)
     client.get_key_metrics("AAPL")
+    assert calls["n"] == 2
+
+
+def _perf_client(**kw: Any) -> YFinanceClient:
+    factory = kw.pop("factory")
+    return YFinanceClient(
+        ticker_factory=factory,
+        time_fn=FakeClock(),
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+
+
+def test_analyze_performance_computes_stats() -> None:
+    closes = [100.0, 110.0, 99.0]
+    client = _perf_client(factory=fake_ticker_factory(history_df=make_history_df(closes)))
+    p = client.analyze_performance("AAPL", "1mo")
+    assert isinstance(p, PerformanceStats)
+    assert p.symbol == "AAPL" and p.period == "1mo" and p.bars == 3
+    assert p.total_return_percent == pytest.approx(analytics.total_return(closes))
+    assert p.annualized_volatility_percent == pytest.approx(analytics.annualized_volatility(closes))
+    assert p.max_drawdown_percent == pytest.approx(analytics.max_drawdown(closes))
+    assert p.sma_50 is None and p.sma_200 is None  # < 50 bars
+    assert p.start_date == "2024-01-01" and p.end_date == "2024-01-03"
+
+
+def test_analyze_performance_sma_when_enough_bars() -> None:
+    closes = [100.0 + i for i in range(60)]  # 60 daily bars
+    client = _perf_client(factory=fake_ticker_factory(history_df=make_history_df(closes)))
+    p = client.analyze_performance("AAPL", "3mo")
+    assert p.sma_50 == pytest.approx(analytics.sma(closes, 50))
+    assert p.sma_200 is None  # still < 200
+
+
+def test_analyze_performance_too_few_bars_raises() -> None:
+    client = _perf_client(factory=fake_ticker_factory(history_df=make_history_df([100.0])))
+    with pytest.raises(DataUnavailable):
+        client.analyze_performance("AAPL", "1d")
+
+
+def test_analyze_performance_invalid_symbol_raises() -> None:
+    client = _perf_client(factory=fake_ticker_factory(history_df=pd.DataFrame()))
+    with pytest.raises(SymbolNotFound):
+        client.analyze_performance("BAD", "1y")
+
+
+def test_analyze_performance_caches_within_ttl() -> None:
+    calls = {"n": 0}
+    df = make_history_df([100.0, 110.0, 99.0])
+
+    def counting(symbol: str) -> object:
+        calls["n"] += 1
+        return fake_ticker_factory(history_df=df)(symbol)
+
+    clock = FakeClock()
+    client = YFinanceClient(
+        ticker_factory=counting,
+        time_fn=clock,
+        quote_ttl=30.0,
+        history_ttl=300.0,
+        fundamentals_ttl=3600.0,
+    )
+    client.analyze_performance("AAPL", "1mo")
+    client.analyze_performance("AAPL", "1mo")
+    assert calls["n"] == 1
+    clock.advance(301.0)
+    client.analyze_performance("AAPL", "1mo")
     assert calls["n"] == 2
