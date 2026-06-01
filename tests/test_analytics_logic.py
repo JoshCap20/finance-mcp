@@ -94,3 +94,8 @@ def test_annualized_volatility_multiple_returns() -> None:
 
 def test_sma_at_window_boundary() -> None:
     assert sma([100.0, 110.0, 99.0], 3) == pytest.approx(103.0)  # mean of all three, not None
+
+
+def test_sma_nonpositive_window_raises() -> None:
+    with pytest.raises(InvalidInput):
+        sma([100.0, 110.0, 99.0], 0)

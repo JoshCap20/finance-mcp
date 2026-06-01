@@ -612,3 +612,39 @@ def test_find_all_roots_dedups_close_roots() -> None:
     # With a wide dedup tolerance, two distinct roots collapse to one.
     roots = _find_all_roots(lambda x: (x - 0.1) * (x - 0.2), dedup_tol=1.0)
     assert len(roots) == 1
+
+
+def test_npv_long_series_extreme_rate_does_not_crash() -> None:
+    # Near rate == -1 the discount factor (1+rate)**period underflows to 0.0 for
+    # long series; npv must degrade to a signed infinity, not raise ZeroDivisionError.
+    cashflows = [-100000.0] + [800.0] * 360
+    result = npv(-0.999999, cashflows)
+    assert math.isinf(result.npv)
+
+
+def test_npv_extreme_rate_ignores_zero_cashflows_in_underflow_region() -> None:
+    # Zero cashflows in the underflow region (factor == 0.0, cash == 0.0) are skipped;
+    # the largest-exponent non-zero flow dictates the signed infinity.
+    result = npv(-0.999999, [-100.0] + [0.0] * 55 + [200.0])
+    assert result.npv == math.inf
+
+
+def test_irr_long_monthly_series_does_not_crash() -> None:
+    # A 30-year monthly IRR is valid input; the root finder evaluates npv near
+    # rate == -1, which previously raised ZeroDivisionError.
+    cashflows = [-100000.0] + [800.0] * 360
+    result = irr(cashflows)
+    assert result.irr > 0.0
+    assert npv(result.irr, cashflows).npv == pytest.approx(0.0, abs=1e-3)
+
+
+def test_xirr_long_calendar_span_does_not_crash() -> None:
+    # A >51-year span pushes (1+rate)**years to underflow at the bracket low end.
+    flows = [_cf(1960, -1000.0), _cf(2024, 5000.0)]
+    result = xirr(flows)
+    assert result.irr > 0.0
+
+
+def test_rate_zero_nper_raises() -> None:
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="rate", pv=-100.0, fv=200.0, pmt=0.0, nper=0.0)
