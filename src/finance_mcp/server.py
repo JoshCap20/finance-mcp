@@ -13,6 +13,7 @@ def build_default_client() -> YFinanceClient:
     return YFinanceClient(
         quote_ttl=float(s.quote_cache_ttl_seconds),
         history_ttl=float(s.history_cache_ttl_seconds),
+        fundamentals_ttl=float(s.fundamentals_cache_ttl_seconds),
     )
 
 

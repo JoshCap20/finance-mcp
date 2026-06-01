@@ -168,3 +168,54 @@ class PriceHistory(BaseModel):
     truncated: bool = Field(
         description="True if bars were capped; summary still covers the full window."
     )
+
+
+class FinancialStatement(BaseModel):
+    """A financial statement (income/balance/cashflow) as a label -> per-period values table."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    statement: Literal["income", "balance", "cashflow"] = Field(description="Which statement.")
+    period: Literal["annual", "quarterly"] = Field(description="Reporting period granularity.")
+    period_ends: list[str] = Field(
+        description="Period-end dates (ISO 8601), most recent first; values align to this order."
+    )
+    line_items: dict[str, list[float | None]] = Field(
+        description="Line item label -> values aligned to period_ends (null where not reported)."
+    )
+
+
+class DividendEvent(BaseModel):
+    """A single cash dividend."""
+
+    date: str = Field(description="Ex-dividend date (ISO 8601).")
+    amount: float = Field(description="Dividend amount per share.")
+
+
+class SplitEvent(BaseModel):
+    """A single stock split."""
+
+    date: str = Field(description="Split date (ISO 8601).")
+    ratio: float = Field(description="Split ratio (e.g. 4.0 = 4-for-1).")
+
+
+class CompanyProfile(BaseModel):
+    """Company profile and key stats, with recent corporate actions."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    name: str | None = Field(default=None, description="Company name.")
+    sector: str | None = Field(default=None, description="Sector.")
+    industry: str | None = Field(default=None, description="Industry.")
+    country: str | None = Field(default=None, description="Country.")
+    website: str | None = Field(default=None, description="Website URL.")
+    employees: int | None = Field(default=None, description="Full-time employees.")
+    summary: str | None = Field(default=None, description="Business summary.")
+    currency: str | None = Field(default=None, description="Reporting/quote currency.")
+    market_cap: float | None = Field(default=None, description="Market capitalization.")
+    trailing_pe: float | None = Field(default=None, description="Trailing P/E ratio.")
+    forward_pe: float | None = Field(default=None, description="Forward P/E ratio.")
+    dividend_yield: float | None = Field(default=None, description="Dividend yield.")
+    beta: float | None = Field(default=None, description="Beta vs the market.")
+    recent_dividends: list[DividendEvent] = Field(
+        default_factory=list, description="Most recent dividends (newest last)."
+    )
+    splits: list[SplitEvent] = Field(default_factory=list, description="Stock split history.")

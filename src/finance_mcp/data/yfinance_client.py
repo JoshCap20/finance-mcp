@@ -28,12 +28,14 @@ class YFinanceClient:
         time_fn: Callable[[], float] = time.monotonic,
         quote_ttl: float = 30.0,
         history_ttl: float = 300.0,
+        fundamentals_ttl: float = 3600.0,
         max_bars: int = DEFAULT_MAX_BARS,
     ) -> None:
         self._ticker = ticker_factory
         self._now = time_fn
         self._quote_ttl = quote_ttl
         self._history_ttl = history_ttl
+        self._fundamentals_ttl = fundamentals_ttl
         self._max_bars = max_bars
         self._cache: dict[tuple[str, ...], tuple[float, Any]] = {}
 

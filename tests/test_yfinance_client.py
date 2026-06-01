@@ -6,7 +6,16 @@ import pytest
 from yfinance.exceptions import YFException
 
 from finance_mcp.data.errors import DataUnavailable, SymbolNotFound
-from finance_mcp.data.models import PriceBar, PriceHistory, PriceSummary, Quote
+from finance_mcp.data.models import (
+    CompanyProfile,
+    DividendEvent,
+    FinancialStatement,
+    PriceBar,
+    PriceHistory,
+    PriceSummary,
+    Quote,
+    SplitEvent,
+)
 from finance_mcp.data.yfinance_client import YFinanceClient
 from tests.conftest import FakeClock, fake_ticker_factory, make_history_df
 
@@ -44,6 +53,38 @@ def test_models_and_errors_exist() -> None:
     assert hist.summary.bars == 2
     assert issubclass(SymbolNotFound, DataUnavailable)
     assert str(DataUnavailable("boom")) == "boom"
+
+
+def test_fundamentals_and_profile_models() -> None:
+    stmt = FinancialStatement(
+        symbol="AAPL",
+        statement="income",
+        period="annual",
+        period_ends=["2024-09-30", "2023-09-30"],
+        line_items={"Total Revenue": [391_035.0, None]},
+    )
+    assert stmt.statement == "income"
+    assert stmt.period == "annual"
+    assert stmt.period_ends[0] == "2024-09-30"
+    assert stmt.line_items["Total Revenue"] == [391_035.0, None]
+
+    profile = CompanyProfile(
+        symbol="AAPL",
+        name="Apple Inc.",
+        sector="Technology",
+        market_cap=3.0e12,
+        recent_dividends=[DividendEvent(date="2024-08-12", amount=0.25)],
+        splits=[SplitEvent(date="2020-08-31", ratio=4.0)],
+    )
+    assert profile.symbol == "AAPL"
+    assert profile.name == "Apple Inc."
+    assert profile.recent_dividends[0].amount == 0.25
+    assert profile.splits[0].ratio == 4.0
+
+    empty = CompanyProfile(symbol="MSFT")
+    assert empty.recent_dividends == []
+    assert empty.splits == []
+    assert empty.name is None
 
 
 QUOTE_FI = {
