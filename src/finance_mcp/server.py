@@ -3,6 +3,7 @@
 from fastmcp import FastMCP
 
 from finance_mcp.data.yfinance_client import YFinanceClient
+from finance_mcp.prompts import analysis
 from finance_mcp.settings import get_settings
 from finance_mcp.tools import analytics, calculators, equities
 
@@ -24,6 +25,7 @@ def create_server(yf_client: YFinanceClient | None = None) -> FastMCP:
     calculators.register(mcp)
     equities.register(mcp, client)
     analytics.register(mcp, client)
+    analysis.register(mcp)
     return mcp
 
 
