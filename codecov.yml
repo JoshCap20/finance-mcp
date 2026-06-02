@@ -1,0 +1,26 @@
+# Codecov configuration — https://docs.codecov.com/docs/codecov-yaml
+# Validate with: curl --data-binary @codecov.yml https://codecov.io/validate
+
+coverage:
+  precision: 2
+  round: down
+  range: "90...100" # color scale: red below the 90% gate, green at 100%
+  status:
+    project:
+      default:
+        target: auto # compare against the PR base
+        threshold: 0% # block any project-coverage regression
+    patch:
+      default:
+        target: 100% # new/changed code must be fully tested
+
+comment:
+  layout: "diff, flags, files"
+  behavior: default
+  require_changes: false # always post the comment, even if coverage is unchanged
+  require_base: false
+  require_head: true
+  hide_project_coverage: false # show project coverage, not just the patch/diff
+
+codecov:
+  require_ci_to_pass: true # only act on coverage once the CI quality gate passes
