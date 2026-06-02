@@ -9,7 +9,7 @@ is negative):
 """
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Literal
 
 from finance_mcp.data.errors import InvalidInput
@@ -165,6 +165,8 @@ def _nper(pv: float, fv: float, pmt: float, rate: float, due: bool = False) -> f
 
 
 def _rate(pv: float, fv: float, pmt: float, nper: float, due: bool = False) -> float:
+    if nper == 0.0:
+        raise InvalidInput("Cannot solve for rate over zero periods (nper must be non-zero).")
     # Closed form when there are no periodic payments (CAGR); timing is irrelevant.
     if pmt == 0.0:
         if pv == 0.0:
@@ -330,6 +332,37 @@ def loan_schedule(
     )
 
 
+def _discount_sum(rate: float, terms: Iterable[tuple[float, float]]) -> float:
+    """Sum ``cash / (1 + rate)**exp`` over ``(cash, exp)`` terms, robust near rate == -1.
+
+    The discount factor ``(1 + rate)**exp`` overflows for large ``exp`` (the term then
+    decays toward 0) and underflows to ``0.0`` as ``rate`` approaches -1 (the term is then
+    infinite). The IRR/XIRR root-finders evaluate present value at the bracket low end
+    (rate ~ -1), so a naive ``cash / 0.0`` raised ZeroDivisionError on otherwise-valid long
+    cashflow series. Here an overflowed term contributes 0 and an underflowed term
+    contributes a signed infinity (the largest-exponent term dominates the limit), so the
+    present value stays well-signed and the root scan converges instead of crashing.
+
+    ``rate`` must be > -1, so ``base`` is positive and the power is always real.
+    """
+    base = 1.0 + rate
+    total = 0.0
+    dominant_sign = 0
+    dominant_exp = -math.inf
+    for cash, exp in terms:
+        try:
+            factor = base**exp
+        except OverflowError:
+            continue  # denominator overflowed: term is negligible (-> 0)
+        if factor == 0.0:  # denominator underflowed: term is infinite
+            if cash != 0.0 and exp > dominant_exp:
+                dominant_exp = exp
+                dominant_sign = 1 if cash > 0.0 else -1
+            continue
+        total += cash / factor
+    return math.copysign(math.inf, dominant_sign) if dominant_sign != 0 else total
+
+
 def npv(rate: float, cashflows: list[float]) -> NPVResult:
     """Net present value of equally-spaced cashflows, with cashflows[0] at t=0 (undiscounted).
 
@@ -340,9 +373,7 @@ def npv(rate: float, cashflows: list[float]) -> NPVResult:
         raise InvalidInput("cashflows must not be empty.")
     if rate <= -1.0:
         raise InvalidInput("rate must be greater than -1 (-100%).")
-    total = 0.0
-    for period, cash in enumerate(cashflows):
-        total += cash / (1.0 + rate) ** period
+    total = _discount_sum(rate, ((cash, float(period)) for period, cash in enumerate(cashflows)))
     return NPVResult(rate=rate, npv=total)
 
 
@@ -413,10 +444,7 @@ def xnpv(rate: float, cashflows: list[DatedCashflow]) -> NPVResult:
     if rate <= -1.0:
         raise InvalidInput("rate must be greater than -1 (-100%).")
     base = min(cf.date for cf in cashflows)
-    total = 0.0
-    for cf in cashflows:
-        years = (cf.date - base).days / 365.0
-        total += cf.amount / (1.0 + rate) ** years
+    total = _discount_sum(rate, ((cf.amount, (cf.date - base).days / 365.0) for cf in cashflows))
     return NPVResult(rate=rate, npv=total)
 
 

@@ -9,7 +9,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.transports import FastMCPTransport
 
-from finance_mcp.data.yfinance_client import YFinanceClient
+from finance_mcp.data.yfinance_client import _FINANCIALS_ATTR, YFinanceClient
 from finance_mcp.server import create_server
 
 
@@ -71,6 +71,9 @@ def fake_ticker_factory(
     recommendations: pd.DataFrame | None = None,
     news: list[dict[str, Any]] | None = None,
     news_error: Exception | None = None,
+    dividends_error: Exception | None = None,
+    splits_error: Exception | None = None,
+    recommendations_error: Exception | None = None,
 ) -> Callable[[str], Any]:
     """Build a ticker factory returning a stub Ticker for any symbol.
 
@@ -87,16 +90,9 @@ def fake_ticker_factory(
     financials_map = financials or {}
     # Records the ``count`` and ``tab`` the last get_news call received, for passthrough assertions.
     captured_news_count: dict[str, int | str] = {}
-    _FINANCIALS_ATTRS = frozenset(
-        {
-            "income_stmt",
-            "quarterly_income_stmt",
-            "balance_sheet",
-            "quarterly_balance_sheet",
-            "cashflow",
-            "quarterly_cashflow",
-        }
-    )
+    # Derive the recognised financials attributes from the production mapping (SSOT),
+    # so a new statement/period in the client can't silently diverge from this stub.
+    _FINANCIALS_ATTRS = frozenset(_FINANCIALS_ATTR.values())
 
     class _Ticker:
         @property
@@ -118,14 +114,20 @@ def fake_ticker_factory(
 
         @property
         def dividends(self) -> Any:
+            if dividends_error is not None:
+                raise dividends_error
             return dividends if dividends is not None else pd.Series(dtype=float)
 
         @property
         def splits(self) -> Any:
+            if splits_error is not None:
+                raise splits_error
             return splits if splits is not None else pd.Series(dtype=float)
 
         @property
         def recommendations(self) -> Any:
+            if recommendations_error is not None:
+                raise recommendations_error
             return recommendations if recommendations is not None else pd.DataFrame()
 
         def get_news(self, count: int = 10, tab: str = "news") -> list[dict[str, Any]]:

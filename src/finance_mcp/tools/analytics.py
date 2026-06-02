@@ -1,15 +1,13 @@
 """MCP tools for computed analytics, backed by YFinanceClient."""
 
-import asyncio
 from typing import Annotated
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from finance_mcp.data.errors import DataUnavailable
 from finance_mcp.data.models import HistoryPeriod, KeyMetrics, PerformanceStats
 from finance_mcp.data.yfinance_client import YFinanceClient
+from finance_mcp.tools._dispatch import run_data
 
 
 def register(mcp: FastMCP, client: YFinanceClient) -> None:
@@ -25,10 +23,7 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         margins and ROE/ROA are fractions (0.27 = 27%); debt_to_equity is a percent
         (79.5 = 79.5%); EV, total debt/cash, FCF, EBITDA are absolute amounts.
         """
-        try:
-            return await asyncio.to_thread(client.get_key_metrics, ticker)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.get_key_metrics(ticker))
 
     @mcp.tool
     async def analyze_performance(
@@ -43,7 +38,4 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         (negative percent), and 50/200-day SMAs (null if insufficient history).
         Annualized at 252 trading days/year.
         """
-        try:
-            return await asyncio.to_thread(client.analyze_performance, ticker, period)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.analyze_performance(ticker, period))

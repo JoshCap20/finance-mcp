@@ -49,6 +49,8 @@ def max_drawdown(closes: list[float]) -> float:
 
 def sma(closes: list[float], window: int) -> float | None:
     """Simple moving average of the last ``window`` closes; None if fewer than ``window`` closes."""
+    if window <= 0:
+        raise InvalidInput("window must be a positive integer.")
     if len(closes) < window:
         return None
     return statistics.fmean(closes[-window:])

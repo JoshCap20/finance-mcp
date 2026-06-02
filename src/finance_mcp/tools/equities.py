@@ -1,13 +1,10 @@
 """MCP tools for equities market data, backed by YFinanceClient."""
 
-import asyncio
 from typing import Annotated
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from finance_mcp.data.errors import DataUnavailable
 from finance_mcp.data.models import (
     AnalystData,
     CompanyProfile,
@@ -22,6 +19,7 @@ from finance_mcp.data.models import (
     SymbolSearchResult,
 )
 from finance_mcp.data.yfinance_client import YFinanceClient
+from finance_mcp.tools._dispatch import run_data
 
 
 def register(mcp: FastMCP, client: YFinanceClient) -> None:
@@ -38,10 +36,7 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         Fails (with a message naming the offending ticker) if ANY ticker has no data; on
         failure the caller should retry without the offending symbol.
         """
-        try:
-            return await asyncio.to_thread(client.get_quote, tickers)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.get_quote(tickers))
 
     @mcp.tool
     async def get_price_history(
@@ -58,10 +53,7 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         ] = "1d",
     ) -> PriceHistory:
         """Historical OHLCV bars plus a summary; long windows are truncated (summary is full)."""
-        try:
-            return await asyncio.to_thread(client.get_price_history, ticker, period, interval)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.get_price_history(ticker, period, interval))
 
     @mcp.tool
     async def get_financials(
@@ -85,12 +77,7 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         Returns line items by period (most recent first); values are in the company's reporting
         currency in absolute units (e.g. 416161000000 = 416.161 billion), null where not reported.
         """
-        try:
-            return await asyncio.to_thread(
-                client.get_financials, ticker, statement, period, line_items
-            )
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.get_financials(ticker, statement, period, line_items))
 
     @mcp.tool
     async def get_company_profile(
@@ -101,10 +88,7 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         Includes sector, industry, market cap and P/E, with recent dividends and splits.
         Note: dividend_yield is a percent (e.g. 5.92 means 5.92%).
         """
-        try:
-            return await asyncio.to_thread(client.get_company_profile, ticker)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.get_company_profile(ticker))
 
     @mcp.tool
     async def get_analyst_data(
@@ -117,10 +101,7 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         current_price are in the result's currency. ETFs, indices, and crypto have no
         analyst coverage and return an error.
         """
-        try:
-            return await asyncio.to_thread(client.get_analyst_data, ticker)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.get_analyst_data(ticker))
 
     @mcp.tool
     async def get_news(
@@ -135,10 +116,7 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         Works for stocks, ETFs, and crypto. A symbol with no news (or an unknown symbol) returns an
         empty article list rather than an error.
         """
-        try:
-            return await asyncio.to_thread(client.get_news, ticker, count)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.get_news(ticker, count))
 
     @mcp.tool
     async def search_symbols(
@@ -155,7 +133,4 @@ def register(mcp: FastMCP, client: YFinanceClient) -> None:
         match's quote_type to choose. Use this to find a symbol before calling the other tools.
         An unmatched query returns an empty match list (not an error).
         """
-        try:
-            return await asyncio.to_thread(client.search_symbols, query, max_results)
-        except DataUnavailable as exc:
-            raise ToolError(str(exc)) from exc
+        return await run_data(lambda: client.search_symbols(query, max_results))

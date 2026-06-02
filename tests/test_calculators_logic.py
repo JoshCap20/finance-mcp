@@ -360,8 +360,11 @@ def test_zero_coupon_duration_equals_maturity() -> None:
 
 
 def test_bond_current_yield() -> None:
+    # current_yield = annual coupon / price = 50 / 925.61 = 0.054016 (price pinned
+    # independently in test_bond_price_discount). Asserting against a literal, not 50/r.price
+    # (which would equal the implementation by construction and could never fail).
     r = bond_price(face=1000.0, coupon_rate=0.05, years_to_maturity=10.0, ytm=0.06, frequency=2)
-    assert r.current_yield == pytest.approx(50.0 / r.price, rel=1e-9)
+    assert r.current_yield == pytest.approx(0.054016, rel=1e-4)
 
 
 def test_bond_price_invalid_frequency_raises() -> None:
@@ -577,9 +580,11 @@ def test_mirr_too_few_cashflows_raises() -> None:
 
 
 def test_mirr_ignores_zero_cashflow() -> None:
-    # A 0.0 flow is neither financed nor reinvested; result must still be valid.
+    # A 0.0 flow is neither financed nor reinvested. n=3; fv_pos = 500*1.12 + 700 = 1260,
+    # pv_neg = 1000 -> MIRR = (1260/1000)**(1/3) - 1 = 0.080083 (computed by hand, so a
+    # mishandled zero flow that still happened to be positive would be caught).
     result = mirr([-1000.0, 0.0, 500.0, 700.0], finance_rate=0.10, reinvest_rate=0.12)
-    assert result.mirr > 0.0
+    assert result.mirr == pytest.approx(0.080083, rel=1e-4)
 
 
 def test_bond_price_nonpositive_maturity_raises() -> None:
@@ -612,3 +617,41 @@ def test_find_all_roots_dedups_close_roots() -> None:
     # With a wide dedup tolerance, two distinct roots collapse to one.
     roots = _find_all_roots(lambda x: (x - 0.1) * (x - 0.2), dedup_tol=1.0)
     assert len(roots) == 1
+
+
+def test_npv_long_series_extreme_rate_yields_signed_infinity() -> None:
+    # Near rate == -1 the discount factor (1+rate)**period underflows to 0.0 for long
+    # series; npv must degrade to a signed infinity, not raise ZeroDivisionError. The
+    # largest-exponent non-zero flow (+800 at period 360) dictates the sign -> +inf.
+    cashflows = [-100000.0] + [800.0] * 360
+    assert npv(-0.999999, cashflows).npv == math.inf
+
+
+def test_npv_extreme_rate_ignores_zero_cashflows_in_underflow_region() -> None:
+    # Zero cashflows in the underflow region (factor == 0.0, cash == 0.0) are skipped;
+    # the largest-exponent non-zero flow dictates the signed infinity.
+    result = npv(-0.999999, [-100.0] + [0.0] * 55 + [200.0])
+    assert result.npv == math.inf
+
+
+def test_irr_long_monthly_series_matches_annuity_solution() -> None:
+    # A 30-year monthly IRR is valid input; the root finder evaluates npv near rate == -1,
+    # which previously raised ZeroDivisionError. Expected value derived independently from
+    # the ordinary-annuity equation 100000 = 800 * (1 - (1+r)^-360)/r  ->  r = 0.00744641.
+    cashflows = [-100000.0] + [800.0] * 360
+    result = irr(cashflows)
+    assert result.irr == pytest.approx(0.00744641, rel=1e-5)
+    assert result.is_unique  # one sign change -> a single IRR
+
+
+def test_xirr_long_calendar_span_matches_closed_form() -> None:
+    # A >51-year span pushes (1+rate)**years to underflow at the bracket low end. Two flows
+    # have a closed-form XIRR: 5000/1000 = (1+r)^years, years = 23376/365 (Actual/365) ->
+    # r = 5**(365/23376) - 1 = 0.02544868.
+    flows = [_cf(1960, -1000.0), _cf(2024, 5000.0)]
+    assert xirr(flows).irr == pytest.approx(0.02544868, rel=1e-5)
+
+
+def test_rate_zero_nper_raises() -> None:
+    with pytest.raises(InvalidInput):
+        time_value_of_money(solve_for="rate", pv=-100.0, fv=200.0, pmt=0.0, nper=0.0)

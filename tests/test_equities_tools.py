@@ -152,10 +152,12 @@ async def test_get_financials_tool_invalid_errors() -> None:
         )
     )
     async with Client(server) as client:
-        with pytest.raises(ToolError):
+        with pytest.raises(ToolError) as exc:
             await client.call_tool(
                 "get_financials", {"ticker": "BAD", "statement": "income", "period": "annual"}
             )
+        # The actionable, model-facing message must survive the run_data -> ToolError hop.
+        assert "No income statement available for 'BAD'" in str(exc.value)
 
 
 async def test_get_company_profile_tool_invalid_errors() -> None:
@@ -164,8 +166,9 @@ async def test_get_company_profile_tool_invalid_errors() -> None:
 
     server = create_server(yf_client=make_client(factory=_factory))
     async with Client(server) as client:
-        with pytest.raises(ToolError):
+        with pytest.raises(ToolError) as exc:
             await client.call_tool("get_company_profile", {"ticker": "BAD"})
+        assert "no profile" in str(exc.value)
 
 
 ANALYST_INFO = {
@@ -210,8 +213,9 @@ async def test_get_analyst_data_tool_no_coverage_errors() -> None:
         yf_client=make_client(factory=fake_ticker_factory(info={"longName": "SPDR ETF"}))
     )
     async with Client(server) as client:
-        with pytest.raises(ToolError):
+        with pytest.raises(ToolError) as exc:
             await client.call_tool("get_analyst_data", {"ticker": "SPY"})
+        assert "No analyst coverage for 'SPY'" in str(exc.value)
 
 
 async def test_search_symbols_tool() -> None:
