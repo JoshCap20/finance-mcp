@@ -7,7 +7,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 ANALYZE_STOCK_TEMPLATE = """\
-You are a senior equity research analyst. Produce an institutional-quality deep-dive on \
+You are a senior equity research analyst. Produce a deep-dive on \
 {ticker}, framed for a {horizon} investment horizon, using ONLY the finance-mcp tools listed \
 below. Cite the tool and period behind every quantitative claim.
 
@@ -83,9 +83,8 @@ historical return).
 - Implied return to target: the analyst mean target is a ~12-month consensus. Compute the implied \
 return to that target on a 12-month basis using the time_value_of_money calculator \
 (solve_for="rate", pv = negative current price, fv = mean target, nper = 1, pmt = 0). If \
-{horizon} is longer than a \
-year, present this 12-month figure AND frame the longer thesis qualitatively - never extrapolate a \
-12-month target across multiple years.
+{horizon} is longer than a year, present this 12-month figure AND frame the longer thesis \
+qualitatively - never extrapolate a 12-month target across multiple years.
 - Verdict framed to the {horizon} horizon: conviction (high/medium/low), fair-value range, \
 upside/downside, key levels.
 
@@ -110,7 +109,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Investment time horizon to frame the thesis, e.g. '12mo', '3y'."),
         ] = "12mo",
     ) -> str:
-        """Institutional-style deep-dive on a single stock: fundamentals, valuation vs peers,
+        """Deep-dive on a single stock: fundamentals, valuation vs peers,
         performance/technical posture, analyst view, and news catalysts, synthesized into
         bull/bear cases and a fair-value range with a horizon-framed verdict. Every claim cites
         the finance-mcp tool and period it came from."""
