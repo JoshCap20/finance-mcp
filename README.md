@@ -78,3 +78,12 @@ Or add it to an MCP client (e.g. Claude Desktop, Claude Code):
 ```json
 { "mcpServers": { "finance": { "command": "uvx", "args": ["mcp-finance"] } } }
 ```
+
+## Development
+
+```bash
+git clone https://github.com/JoshCap20/finance-mcp
+cd finance-mcp
+uv sync
+make check   # ruff, mypy --strict, bandit, pytest (enforces the coverage gate)
+```
