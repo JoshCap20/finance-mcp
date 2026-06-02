@@ -1,17 +1,7 @@
 # Finance MCP
 
 An MCP server of finance tools: a `yfinance` market-data wrapper, computed analytics,
-and deterministic financial calculators. (Analysis prompts are planned.)
-
-Immediate roadmap:
-
-1. More computed analytics
-
-- compare_peers (rank a set of tickers across key metrics)
-
-2. analyze_stock + compare_stocks — user-invoked slash commands that orchestrate the existing 14 tools into a methodology
-3. Public free data requiring keys - add optional extensions for fed data for interest rates, etc.
-4. Portfolio tools - add tools for portfolio analysis to extend specific stock functionality
+and deterministic financial calculators.
 
 ## Tools
 
@@ -51,6 +41,13 @@ Immediate roadmap:
 The calculators are pure and deterministic; the market-data and analytics tools fetch
 live data (briefly cached) and surface source errors clearly. All tools return typed,
 structured results and report invalid inputs as clear errors.
+
+## Prompts
+
+MCP prompts — reusable analysis templates the client exposes for you to invoke (Claude Code shows
+them as slash commands; other clients surface them their own way).
+
+- `analyze_stock` (arguments: `ticker`, optional `horizon`, default `12mo`) — single-stock deep-dive: fundamentals, growth-adjusted peer valuation, performance, analyst view, and news catalysts → bull/bear cases and a fair-value range with a horizon-framed verdict, citing the data behind each claim.
 
 ## Run
 
