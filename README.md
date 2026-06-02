@@ -1,5 +1,13 @@
 # Finance MCP
 
+[![CI](https://github.com/JoshCap20/finance-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/JoshCap20/finance-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/JoshCap20/finance-mcp/branch/master/graph/badge.svg)](https://codecov.io/gh/JoshCap20/finance-mcp)
+[![PyPI](https://img.shields.io/pypi/v/mcp-finance)](https://pypi.org/project/mcp-finance/)
+[![Python](https://img.shields.io/pypi/pyversions/mcp-finance)](https://pypi.org/project/mcp-finance/)
+[![License: MIT](https://img.shields.io/pypi/l/mcp-finance)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://img.shields.io/badge/types-mypy-blue)](https://mypy-lang.org/)
+
 An MCP server of finance tools: a `yfinance` market-data wrapper, computed analytics,
 and deterministic financial calculators.
 
@@ -49,13 +57,23 @@ them as slash commands; other clients surface them their own way).
 
 - `analyze_stock` (arguments: `ticker`, optional `horizon`, default `12mo`) — single-stock deep-dive: fundamentals, growth-adjusted peer valuation, performance, analyst view, and news catalysts → bull/bear cases and a fair-value range with a horizon-framed verdict, citing the data behind each claim.
 
-## Run
+## Install
 
 ```bash
-uv run mcp-finance        # stdio MCP server
+uvx mcp-finance        # run without installing (recommended)
+# or
+pip install mcp-finance
 ```
 
-Add to an MCP client (e.g. Claude) as:
+## Usage
+
+Run the stdio server directly:
+
+```bash
+mcp-finance
+```
+
+Or add it to an MCP client (e.g. Claude Desktop, Claude Code):
 
 ```json
 { "mcpServers": { "finance": { "command": "uvx", "args": ["mcp-finance"] } } }
