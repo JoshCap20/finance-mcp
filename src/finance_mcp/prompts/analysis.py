@@ -114,4 +114,6 @@ def register(mcp: FastMCP) -> None:
         performance/technical posture, analyst view, and news catalysts, synthesized into
         bull/bear cases and a fair-value range with a horizon-framed verdict. Every claim cites
         the finance-mcp tool and period it came from."""
-        return ANALYZE_STOCK_TEMPLATE.format(ticker=ticker, horizon=horizon)
+        # Token replacement (not str.format) so a future literal brace in the
+        # methodology prose can never raise at call time.
+        return ANALYZE_STOCK_TEMPLATE.replace("{ticker}", ticker).replace("{horizon}", horizon)
