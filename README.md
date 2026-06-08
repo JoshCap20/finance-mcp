@@ -1,7 +1,7 @@
 # Finance MCP
 
-[![CI](https://github.com/JoshCap20/finance-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/JoshCap20/finance-mcp/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/JoshCap20/finance-mcp/branch/master/graph/badge.svg)](https://codecov.io/gh/JoshCap20/finance-mcp)
+[![CI](https://github.com/j0shcap/finance-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/j0shcap/finance-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/j0shcap/finance-mcp/branch/master/graph/badge.svg)](https://codecov.io/gh/j0shcap/finance-mcp)
 [![PyPI](https://img.shields.io/pypi/v/mcp-finance)](https://pypi.org/project/mcp-finance/)
 [![Python](https://img.shields.io/pypi/pyversions/mcp-finance)](https://pypi.org/project/mcp-finance/)
 [![License: MIT](https://img.shields.io/pypi/l/mcp-finance)](LICENSE)
@@ -82,7 +82,7 @@ Or add it to an MCP client (e.g. Claude Desktop, Claude Code):
 ## Development
 
 ```bash
-git clone https://github.com/JoshCap20/finance-mcp
+git clone https://github.com/j0shcap/finance-mcp
 cd finance-mcp
 uv sync
 make check   # ruff, mypy --strict, bandit, pytest (enforces the coverage gate)
